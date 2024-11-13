@@ -1,7 +1,7 @@
 import { generateSecretKey } from "nostr-tools";
-import NDK, { NDKEvent, type NostrEvent } from "../../index.js";
+import type { NostrEvent } from "../../index.js";
 import { NDKPrivateKeySigner } from "./index";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
+import { bytesToHex } from "@noble/hashes/utils";
 import { nip19 } from "nostr-tools";
 
 describe("NDKPrivateKeySigner", () => {

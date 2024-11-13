@@ -1,4 +1,3 @@
-import { Debugger } from "debug";
 import { NDKNip46Signer } from ".";
 import { NDK } from "../../ndk/index";
 import { NDKUser } from "../../user/index";
