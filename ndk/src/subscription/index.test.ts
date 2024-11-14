@@ -1,7 +1,9 @@
+import { NDKCashuMintList } from "../events/kinds/nutzap/mint-list";
 import { NDKSubscription } from ".";
 import { NDK } from "../ndk";
 import { NDKEvent } from "../events";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 const ndk = new NDK();
 const invalidEvent = new NDKEvent(ndk, {
     kind: 1,

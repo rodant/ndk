@@ -1,9 +1,9 @@
+import * as Nip05 from "./nip05.js";
 import { nip19 } from "nostr-tools";
 import { NDKEvent } from "../events/index.js";
 import { NDK } from "../ndk/index.js";
 import { NDKSubscription } from "../subscription/index.js";
 import { NDKUser, type ProfilePointer, type NDKUserParams } from "./index.js";
-import * as Nip05 from "./nip05.js";
 
 jest.mock("nostr-tools", () => ({
     ...jest.requireActual("nostr-tools"),

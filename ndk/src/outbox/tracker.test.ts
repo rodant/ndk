@@ -1,7 +1,9 @@
+import { NDKCashuMintList } from "../events/kinds/nutzap/mint-list.js";
 import { NDK } from "../ndk/index.js";
 import { NDKUser } from "../user/index.js";
 import { OutboxTracker } from "./tracker.js";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 const ndk = new NDK();
 
 describe("OutboxTracker", () => {

@@ -1,8 +1,10 @@
+import { NDKCashuMintList } from "../events/kinds/nutzap/mint-list.js";
 import { NDK } from ".";
 import { NDKEvent } from "../events";
 import type { NDKSubscriptionOptions } from "../subscription";
 import { NDKSubscriptionCacheUsage } from "../subscription";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 const ndk = new NDK();
 
 describe("fetchEventFromTag", () => {

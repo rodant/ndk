@@ -1,7 +1,9 @@
+import { NDKCashuMintList } from "../events/kinds/nutzap/mint-list";
 import { type NDKFilter, NDKSubscription } from ".";
 import { NDK } from "../ndk";
 import { filterForEventsTaggingId, filterFromId, generateSubId } from "./utils";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 const ndk = new NDK();
 
 describe("generateSubId", () => {

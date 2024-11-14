@@ -1,6 +1,6 @@
+import { NDKPrivateKeySigner } from "../signers/private-key";
 import { Nip96 } from ".";
 import { NDK } from "../ndk";
-import { NDKPrivateKeySigner } from "../signers/private-key";
 
 const ndk = new NDK();
 ndk.signer = NDKPrivateKeySigner.generate();

@@ -1,11 +1,11 @@
 // NDKRelaySubscription.test.ts
 
-import { NDKRelaySubscription, NDKRelaySubscriptionStatus } from "./subscription.js";
 import type { NDKFilter, NDKSubscriptionInternalId } from "../subscription/index.js";
-import { NDKSubscription } from "../subscription/index.js";
 import debug from "debug";
-import { NDK } from "../ndk/index.js";
 import { NDKRelay } from "../index.js";
+import { NDKSubscription } from "../subscription/index.js";
+import { NDKRelaySubscription, NDKRelaySubscriptionStatus } from "./subscription.js";
+import { NDK } from "../ndk/index.js";
 
 const ndk = new NDK();
 const relay = new NDKRelay("wss://fake-relay.com", undefined, ndk);

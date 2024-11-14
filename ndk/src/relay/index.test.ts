@@ -1,7 +1,9 @@
+import { NDKCashuMintList } from "../events/kinds/nutzap/mint-list.js";
 import { NDKRelay } from "./index.js";
 import { NDK } from "../ndk/index.js";
 import { NDKRelayStatus } from "./index.js";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 const ndk = new NDK();
 const relay = new NDKRelay("ws://localhost/");
 ndk.addExplicitRelay(relay, undefined, false);

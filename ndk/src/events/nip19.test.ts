@@ -1,10 +1,12 @@
 import "websocket-polyfill";
 
+import { NDKCashuMintList } from "./kinds/nutzap/mint-list";
 import type { NostrEvent } from ".";
 import { NDKEvent } from ".";
 import { NDK } from "../ndk";
 import { NDKRelay } from "../relay";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 let ndk: NDK;
 
 beforeAll(() => {

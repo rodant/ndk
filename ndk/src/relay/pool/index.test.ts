@@ -1,8 +1,10 @@
 import "websocket-polyfill";
+import { NDKCashuMintList } from "../../events/kinds/nutzap/mint-list.js";
 import { NDK } from "../../ndk/index.js";
 import { NDKRelay } from "../index.js";
 import { NDKRelaySet } from "../sets/index.js";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 describe("NDKPool", () => {
     it("refuses connecting to blacklisted relays", async () => {
         const blacklistedRelay = new NDKRelay("wss://url1");

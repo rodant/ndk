@@ -1,6 +1,8 @@
+import { NDKCashuMintList } from "../events/kinds/nutzap/mint-list";
 import { NDK } from "../ndk";
 import { NDKRelayAuthPolicies } from "./auth-policies";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 const ndk = new NDK({
     explicitRelayUrls: ["ws://localhost/"],
 });

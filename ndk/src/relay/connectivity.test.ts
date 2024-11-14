@@ -1,7 +1,9 @@
+import { NDKCashuMintList } from "../events/kinds/nutzap/mint-list";
 import { NDKRelayConnectivity } from "./connectivity";
 import { NDKRelay, NDKRelayStatus } from "./index";
 import { NDK } from "../ndk/index";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 jest.mock("ws");
 jest.useFakeTimers();
 

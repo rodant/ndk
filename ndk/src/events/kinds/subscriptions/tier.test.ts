@@ -1,7 +1,9 @@
+import { NDKCashuMintList } from "../nutzap/mint-list.js";
 import { NDKKind } from "../index.js";
 import { type NostrEvent } from "../..";
 import { NDKSubscriptionTier } from "./tier";
 
+const fakeEvent = new NDKCashuMintList(); // workaround to avoid jest errors extending NDKEvent
 describe("NDKSubscriptionTier", () => {
     describe("isValid", () => {
         it("marks tiers without an amount as invalid", () => {

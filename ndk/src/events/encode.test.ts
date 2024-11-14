@@ -1,8 +1,7 @@
 import { nip19 } from "nostr-tools";
-import { NDKEvent } from ".";
-import { NDKRelay } from "../relay";
-import type { EventPointer } from "../user";
 import { NDKPrivateKeySigner } from "../signers/private-key";
+import { NDKEvent } from ".";
+import type { EventPointer } from "../user";
 
 describe("event.encode", () => {
     it("encodes all relays the event is known to be on", async () => {

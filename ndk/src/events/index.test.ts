@@ -1,3 +1,4 @@
+import { NDKPrivateKeySigner } from "../signers/private-key";
 import type { NostrEvent } from ".";
 import { NDKEvent } from ".";
 import { NDK } from "../ndk";
@@ -5,7 +6,6 @@ import { NDKRelay } from "../relay";
 import { NDKSubscription } from "../subscription";
 import { NDKUser } from "../user";
 import { NDKRelaySet } from "../relay/sets";
-import { NDKPrivateKeySigner } from "../signers/private-key";
 import { NIP73EntityType } from "./nip73";
 
 describe("NDKEvent", () => {
