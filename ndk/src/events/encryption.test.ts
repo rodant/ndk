@@ -1,6 +1,6 @@
+import { NDKPrivateKeySigner } from "../signers/private-key";
 import { NDKEvent } from ".";
 import { NDK } from "../ndk";
-import { NDKPrivateKeySigner } from "../signers/private-key";
 
 const PRIVATE_KEY_1_FOR_TESTING = '1fbc12b81e0b21f10fb219e88dd76fc80c7aa5369779e44e762fec6f460d6a89';
 const PRIVATE_KEY_2_FOR_TESTING = "d30b946562050e6ced827113da15208730879c46547061b404434edff63236fa";

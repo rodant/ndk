@@ -1,5 +1,5 @@
-import { NDK } from "../ndk";
 import { getNip05For } from "./nip05";
+import { NDK } from "../ndk";
 
 const ndk = new NDK();
 
