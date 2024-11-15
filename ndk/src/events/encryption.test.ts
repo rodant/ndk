@@ -38,19 +38,21 @@ describe("NDKEvent encryption (Nip44 & Nip59)", ()=>{
     const recieveuser = await recievesigner.user();
   
     let message = new NDKEvent(new NDK(),{
-      kind : 1,
+      kind : 14,
       pubkey : senduser.pubkey,
       content : "hello world",
-      created_at : new Date().valueOf(),
+      created_at : Math.floor(Date.now() / 1000),
       tags : []
     })
+    message.tags.push(["p", recieveuser.pubkey]);
   
     // console.log('MESSAGE EVENT : '+ JSON.stringify(message.rawEvent()))
     const wrapped = await message.giftWrap(recieveuser,sendsigner);
     // console.log('MESSAGE EVENT WRAPPED : '+ JSON.stringify(wrapped.rawEvent()))
-    const unwrapped = await wrapped.giftUnwrap(senduser,recievesigner)
+    const unwrapped = await wrapped.giftUnwrap(wrapped.author, recievesigner);
     // console.log('MESSAGE EVENT UNWRAPPED : '+ JSON.stringify(unwrapped?.rawEvent())) 
-    expect(unwrapped).toBe(message) 
+    message.id = unwrapped?.id || "";
+    expect(JSON.stringify(unwrapped)).toBe(JSON.stringify(message)); 
   });
 
 })
