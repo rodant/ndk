@@ -55,6 +55,7 @@ export class NDKCashuWallet extends NDKWallet {
         return "nip-60";
     }
 
+    private bip39seed?: Uint8Array
     public _p2pk: string | undefined;
     private sub?: NDKSubscription;
 
@@ -83,8 +84,9 @@ export class NDKCashuWallet extends NDKWallet {
 
     public relaySet?: NDKRelaySet;
 
-    constructor(ndk: NDK, event?: NDKEvent) {
+    constructor(ndk: NDK, bip39seed?: Uint8Array, event?: NDKEvent) {
         super(ndk);
+        this.bip39seed = bip39seed;
         if (!event) {
             event = new NDKEvent(ndk);
             event.kind = NDKKind.CashuWallet;
@@ -146,7 +148,7 @@ export class NDKCashuWallet extends NDKWallet {
         const totalAmount = amounts.reduce((acc, amount) => acc + amount, 0);
 
         for (const mint of this.mints) {
-            const wallet = await this.getCashuWallet(mint);
+            const wallet = await this.getCashuWallet(mint, this.bip39seed);
             const mintProofs = await this.state.getProofs({ mint });
             result = await wallet.send(totalAmount, mintProofs, {
                 proofsWeHave: mintProofs,
@@ -183,9 +185,9 @@ export class NDKCashuWallet extends NDKWallet {
         }
     }
 
-    static async from(event: NDKEvent): Promise<NDKCashuWallet | undefined> {
+    static async from(event: NDKEvent, bip39seed?: Uint8Array): Promise<NDKCashuWallet | undefined> {
         if (!event.ndk) throw new Error("no ndk instance on event");
-        const wallet = new NDKCashuWallet(event.ndk, event);
+        const wallet = new NDKCashuWallet(event.ndk, bip39seed, event);
         if (!wallet.event) return;
         if (wallet.isDeleted) return;
 
@@ -362,7 +364,7 @@ export class NDKCashuWallet extends NDKWallet {
      */
     public async receiveToken(token: string, description?: string) {
         let { mint } = getDecodedToken(token);
-        const wallet = await this.getCashuWallet(mint);
+        const wallet = await this.getCashuWallet(mint, this.bip39seed);
         const proofs = await wallet.receive(token);
 
         const updateRes = await this.state.update({
@@ -414,7 +416,7 @@ export class NDKCashuWallet extends NDKWallet {
             mint ??= cashuWallet.mint.mintUrl;
         } else {
             if (!mint) throw new Error("mint not set");
-            cashuWallet = await this.getCashuWallet(mint);
+            cashuWallet = await this.getCashuWallet(mint, this.bip39seed);
         }
 
         if (!mint) throw new Error("mint not set");
