@@ -62,7 +62,7 @@ async function createTokenInMint(
     amount: number,
     p2pk?: string
 ): Promise<WalletOperation<TokenCreationResult> | null> {
-    const cashuWallet = await wallet.getCashuWallet(mint);
+    const cashuWallet = await wallet.getCashuWallet(mint, wallet.bip39seed);
     try {
         console.log("Attempting with mint %s", mint);
 
@@ -109,7 +109,7 @@ async function createTokenWithMintTransfer(
 ): Promise<WalletOperation<TokenCreationResult> | null> {
     const generateQuote = async () => {
         const generateQuoteFromSomeMint = async (mint: MintUrl) => {
-            const targetMintWallet = await walletForMint(mint);
+            const targetMintWallet = await walletForMint(mint, { bip39seed: wallet.bip39seed });
             if (!targetMintWallet) throw new Error("unable to load wallet for mint " + mint);
             const quote = await targetMintWallet.createMintQuote(amount);
             return { quote, mint, targetMintWallet };

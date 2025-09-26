@@ -55,7 +55,7 @@ export class NDKCashuWallet extends NDKWallet {
         return "nip-60";
     }
 
-    private bip39seed?: Uint8Array
+    private _bip39seed?: Uint8Array;
     public _p2pk: string | undefined;
     private sub?: NDKSubscription;
 
@@ -86,7 +86,7 @@ export class NDKCashuWallet extends NDKWallet {
 
     constructor(ndk: NDK, bip39seed?: Uint8Array, event?: NDKEvent) {
         super(ndk);
-        this.bip39seed = bip39seed;
+        this._bip39seed = bip39seed;
         if (!event) {
             event = new NDKEvent(ndk);
             event.kind = NDKKind.CashuWallet;
@@ -97,6 +97,10 @@ export class NDKCashuWallet extends NDKWallet {
         this.ndk = ndk;
         this.paymentHandler = new PaymentHandler(this);
         this.state = new WalletState(this);
+    }
+
+    public get bip39seed(): Uint8Array | undefined {
+        return this._bip39seed;
     }
 
     set event(e: NDKEvent | undefined) {
@@ -148,7 +152,7 @@ export class NDKCashuWallet extends NDKWallet {
         const totalAmount = amounts.reduce((acc, amount) => acc + amount, 0);
 
         for (const mint of this.mints) {
-            const wallet = await this.getCashuWallet(mint, this.bip39seed);
+            const wallet = await this.getCashuWallet(mint, this._bip39seed);
             const mintProofs = await this.state.getProofs({ mint });
             result = await wallet.send(totalAmount, mintProofs, {
                 proofsWeHave: mintProofs,
@@ -364,7 +368,7 @@ export class NDKCashuWallet extends NDKWallet {
      */
     public async receiveToken(token: string, description?: string) {
         let { mint } = getDecodedToken(token);
-        const wallet = await this.getCashuWallet(mint, this.bip39seed);
+        const wallet = await this.getCashuWallet(mint, this._bip39seed);
         const proofs = await wallet.receive(token);
 
         const updateRes = await this.state.update({
@@ -416,7 +420,7 @@ export class NDKCashuWallet extends NDKWallet {
             mint ??= cashuWallet.mint.mintUrl;
         } else {
             if (!mint) throw new Error("mint not set");
-            cashuWallet = await this.getCashuWallet(mint, this.bip39seed);
+            cashuWallet = await this.getCashuWallet(mint, this._bip39seed);
         }
 
         if (!mint) throw new Error("mint not set");

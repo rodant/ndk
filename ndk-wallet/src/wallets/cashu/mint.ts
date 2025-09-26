@@ -21,6 +21,7 @@ export async function walletForMint(
     mint: MintUrl,
     {
         pk,
+        bip39seed,
         timeout = 5000,
         mintInfo,
         mintKeys,
@@ -30,6 +31,7 @@ export async function walletForMint(
         onMintKeysLoaded,
     }: {
         pk?: Uint8Array;
+        bip39seed?: Uint8Array;
         timeout?: number;
         mintInfo?: GetInfoResponse;
         mintKeys?: MintKeys[];
@@ -80,7 +82,7 @@ export async function walletForMint(
 
     const wallet = new CashuWallet(new CashuMint(mint), {
         unit,
-        bip39seed: pk,
+        bip39seed,
         mintInfo,
         keys: mintKeys,
     });

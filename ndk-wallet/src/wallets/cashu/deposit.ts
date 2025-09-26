@@ -54,7 +54,7 @@ export class NDKCashuDeposit extends EventEmitter<{
      * @returns
      */
     async start(pollTime: number = 2500) {
-        const cashuWallet = await this.wallet.getCashuWallet(this.mint);
+        const cashuWallet = await this.wallet.getCashuWallet(this.mint, this.wallet.bip39seed);
         const quote = await cashuWallet.createMintQuote(this.amount);
         d("created quote %s for %d %s", quote.quote, this.amount, this.mint);
 
@@ -128,7 +128,7 @@ export class NDKCashuDeposit extends EventEmitter<{
 
         try {
             d("Checking for minting status of %s", this.quoteId);
-            const cashuWallet = await this.wallet.getCashuWallet(this.mint);
+            const cashuWallet = await this.wallet.getCashuWallet(this.mint, this.wallet.bip39seed);
             const proofsWeHave = await this.wallet.state.getProofs({ mint: this.mint });
             proofs = await cashuWallet.mintProofs(this.amount, this.quoteId, {
                 proofsWeHave,

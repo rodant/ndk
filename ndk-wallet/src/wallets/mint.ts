@@ -41,7 +41,7 @@ export async function getCashuWallet(this: MintInterface, mint: string, bip39see
     if (this.cashuWallets.has(mint)) return this.cashuWallets.get(mint) as CashuWallet;
 
     const w = await walletForMint(mint, {
-        pk: bip39seed,
+        bip39seed: bip39seed,
         onMintInfoNeeded: this.onMintInfoNeeded,
         onMintInfoLoaded: this.onMintInfoLoaded,
         onMintKeysNeeded: this.onMintKeysNeeded,

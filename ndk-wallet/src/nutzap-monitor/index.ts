@@ -345,7 +345,8 @@ export class NDKNutzapMonitor
         group: GroupedNutzaps,
         oldestUnspentNutzapTime?: number | undefined
     ) {
-        const cashuWallet = await this.getCashuWallet(group.mint);
+        const bip39seed = this._wallet instanceof NDKCashuWallet ? this._wallet.bip39seed : undefined;
+        const cashuWallet = await this.getCashuWallet(group.mint, bip39seed);
 
         const spendStates = await getProofSpendState(cashuWallet, group.nutzaps);
 
@@ -502,7 +503,8 @@ export class NDKNutzapMonitor
         if (!this.wallet.redeemNutzaps)
             throw new Error("wallet does not support redeeming nutzaps");
 
-        const cashuWallet = await this.getCashuWallet(mint);
+        const bip39seed = this._wallet instanceof NDKCashuWallet ? this._wallet.bip39seed : undefined;
+        const cashuWallet = await this.getCashuWallet(mint, bip39seed);
         const validNutzaps: NDKNutzap[] = [];
 
         // First check if we have the required private key

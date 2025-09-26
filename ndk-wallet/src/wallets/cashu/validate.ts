@@ -33,7 +33,7 @@ export async function consolidateMintTokens(
     onFailure?: (error: string) => void
 ) {
     allProofs ??= wallet.state.getProofs({ mint, includeDeleted: true, onlyAvailable: false });
-    const _wallet = await walletForMint(mint);
+    const _wallet = await walletForMint(mint, { bip39seed: wallet.bip39seed });
     if (!_wallet) {
         console.log("could not get wallet for mint %s", mint);
         return;
