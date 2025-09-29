@@ -46,6 +46,8 @@ export type WalletWarning = {
 import { PaymentHandler, PaymentWithOptionalZapInfo } from "./payment.js";
 import { createInTxEvent, createOutTxEvent } from "./txs.js";
 import { WalletState } from "./state/index.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
+import { DeterministicCashuWalletInfoKind, isDeterministicCashuWalletInfoContent } from "./deterministic-info.js";
 
 /**
  * This class tracks state of a NIP-60 wallet
@@ -70,6 +72,12 @@ export class NDKCashuWallet extends NDKWallet {
 
     public _event?: NDKEvent;
 
+    /**
+     * Optional Deterministic Cashu Wallet Info (kind 17376) event.
+     * When present, bip39seed is derived from its content.
+     */
+    public deterministicInfoEvent?: NDKEvent;
+
     public walletId: string = "nip-60";
 
     public depositMonitor = new NDKCashuDepositMonitor();
@@ -86,7 +94,19 @@ export class NDKCashuWallet extends NDKWallet {
 
     constructor(ndk: NDK, bip39seed?: Uint8Array, event?: NDKEvent) {
         super(ndk);
-        this._bip39seed = bip39seed;
+        // If a seed is provided, initialize a deterministic info snapshot carrying it.
+        if (bip39seed) {
+            this._bip39seed = bip39seed;
+            const info = new NDKEvent(ndk);
+            info.kind = DeterministicCashuWalletInfoKind;
+            info.tags = [];
+            info.content = JSON.stringify({
+                bip39seed: bytesToHex(bip39seed),
+                counters: {},
+            });
+            this.deterministicInfoEvent = info;
+        }
+
         if (!event) {
             event = new NDKEvent(ndk);
             event.kind = NDKKind.CashuWallet;
@@ -100,7 +120,23 @@ export class NDKCashuWallet extends NDKWallet {
     }
 
     public get bip39seed(): Uint8Array | undefined {
-        return this._bip39seed;
+        if (this._bip39seed) return this._bip39seed;
+
+        // If a deterministic info event is available and already decrypted,
+        // attempt to derive the seed from it.
+        if (this.deterministicInfoEvent?.content) {
+            try {
+                const content = JSON.parse(this.deterministicInfoEvent.content);
+                if (isDeterministicCashuWalletInfoContent(content)) {
+                    this._bip39seed = hexToBytes(content.bip39seed);
+                    return this._bip39seed;
+                }
+            } catch {
+                // content might be still encrypted or malformed; ignore
+            }
+        }
+
+        return undefined;
     }
 
     set event(e: NDKEvent | undefined) {
@@ -189,15 +225,26 @@ export class NDKCashuWallet extends NDKWallet {
         }
     }
 
-    static async from(event: NDKEvent, bip39seed?: Uint8Array): Promise<NDKCashuWallet | undefined> {
+    static async from(event: NDKEvent, deterministicInfoEvent?: NDKEvent): Promise<NDKCashuWallet | undefined> {
         if (!event.ndk) throw new Error("no ndk instance on event");
-        const wallet = new NDKCashuWallet(event.ndk, bip39seed, event);
+        const wallet = new NDKCashuWallet(event.ndk, undefined, event);
+        wallet.deterministicInfoEvent = deterministicInfoEvent;
+
         if (!wallet.event) return;
         if (wallet.isDeleted) return;
 
         try {
             await wallet.event.decrypt();
         } catch (e) {}
+
+        // Try to have deterministic info ready for synchronous getter usage
+        if (wallet.deterministicInfoEvent) {
+            try {
+                await wallet.deterministicInfoEvent.decrypt();
+            } catch (e) {
+                // ignore; getter will handle absence
+            }
+        }
 
         try {
             const content = JSON.parse(wallet.event.content);
