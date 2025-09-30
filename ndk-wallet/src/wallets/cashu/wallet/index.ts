@@ -116,7 +116,8 @@ export class NDKCashuWallet extends NDKWallet {
         this.event = event;
         this.ndk = ndk;
         this.paymentHandler = new PaymentHandler(this);
-        this.state = new WalletState(this);
+        // Initialize WalletState with an empty counters snapshot
+        this.state = new WalletState(this, new Set<string>());
     }
 
     public get bip39seed(): Uint8Array | undefined {
@@ -244,6 +245,20 @@ export class NDKCashuWallet extends NDKWallet {
             } catch (e) {
                 // ignore; getter will handle absence
             }
+
+            // Initialize WalletState with counters snapshot parsed from deterministic info
+            let countersSnapshot: Record<string, number> | undefined;
+            if (wallet.deterministicInfoEvent.content) {
+                try {
+                    const info = JSON.parse(wallet.deterministicInfoEvent.content);
+                    if (isDeterministicCashuWalletInfoContent(info)) {
+                        countersSnapshot = info.counters;
+                    }
+                } catch {
+                    // ignore parse errors
+                }
+            }
+            wallet.state = new WalletState(wallet, new Set<string>(), countersSnapshot ?? {});
         }
 
         try {

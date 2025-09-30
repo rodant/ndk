@@ -119,12 +119,27 @@ export class WalletState {
      */
     public tokens = new Map<NDKEventId, TokenEntry>();
 
+    /**
+     * Deterministic counters per "<normalized-mint>|<keyset-id>".
+     * Represents the last used counter value (starting at 0).
+     */
+    public deterministicCounters = new Map<string, number>();
+ 
     public journal: JournalEntry[] = [];
 
     constructor(
         public wallet: NDKCashuWallet,
-        public reservedProofCs: Set<string> = new Set<string>()
-    ) {}
+        public reservedProofCs: Set<string> = new Set<string>(),
+        countersSnapshot?: Record<string, number>
+    ) {
+        if (countersSnapshot) {
+            for (const [key, value] of Object.entries(countersSnapshot)) {
+                if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+                    this.deterministicCounters.set(key, value);
+                }
+            }
+        }
+    }
 
     /** This is a debugging function that dumps the state of the wallet */
     public dump() {
