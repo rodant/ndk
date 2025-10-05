@@ -13,6 +13,7 @@ import {
 import { getBalance, getMintsBalances } from "./balance";
 import { addToken, removeTokenId } from "./token";
 import { update } from "./update";
+import { buildCounterKey, isValidCounterKey } from "../counters.js";
 
 export type ProofC = string;
 export type ProofState = "available" | "reserved" | "deleted";
@@ -151,6 +152,92 @@ export class WalletState {
         };
 
         return res;
+    }
+
+    /***************************
+     * Deterministic counters API
+     ***************************/
+
+    /**
+     * Returns the last used counter for a given composite key ("<normalized-mint>|<keyset-id>").
+     */
+    public getLastUsedCounterByKey(key: string): number | undefined {
+        if (!isValidCounterKey(key)) return undefined;
+        return this.deterministicCounters.get(key);
+    }
+
+    /**
+     * Returns the last used counter for the provided mint URL and keyset id.
+     * The mint URL is normalized internally before lookup.
+     */
+    public getLastUsedCounter(mintUrl: string, keysetId: string): number | undefined {
+        const key = buildCounterKey(mintUrl, keysetId);
+        return this.getLastUsedCounterByKey(key);
+    }
+
+    /**
+     * Sets the last used counter for a composite key with monotonic max semantics.
+     * If the provided value is lower than the stored one, it is ignored.
+     * Returns the effective value after the update.
+     */
+    public setLastUsedCounterByKey(key: string, lastUsed: number): number {
+        if (!isValidCounterKey(key)) throw new Error(`invalid counter key: ${key}`);
+        if (!Number.isInteger(lastUsed) || lastUsed < 0) {
+            throw new Error(`lastUsed counter must be a non-negative integer`);
+        }
+        const current = this.deterministicCounters.get(key) ?? 0;
+        const next = Math.max(current, lastUsed);
+        this.deterministicCounters.set(key, next);
+        return next;
+    }
+
+    /**
+     * Sets the last used counter for the given mint/keyset with monotonic semantics.
+     */
+    public setLastUsedCounter(mintUrl: string, keysetId: string, lastUsed: number): number {
+        const key = buildCounterKey(mintUrl, keysetId);
+        return this.setLastUsedCounterByKey(key, lastUsed);
+    }
+
+    /**
+     * Allocates the next 'count' counters (1..count) after the last used value for a composite key.
+     * - If lastUsed is undefined, it is treated as 0 (first allocation yields [1..count]).
+     * - Updates internal lastUsed to the end of the allocated range.
+     * Returns the allocated sequence as an array of integers in ascending order.
+     */
+    public allocateNextByKey(key: string, count = 1): number[] {
+        if (!isValidCounterKey(key)) throw new Error(`invalid counter key: ${key}`);
+        if (!Number.isInteger(count) || count <= 0) throw new Error(`count must be a positive integer`);
+
+        const lastUsed = this.deterministicCounters.get(key) ?? 0;
+        const start = lastUsed + 1;
+        const end = lastUsed + count;
+
+        // Update stored lastUsed
+        this.deterministicCounters.set(key, end);
+
+        // Materialize allocated counters
+        const out = new Array<number>(count);
+        for (let i = 0; i < count; i++) out[i] = start + i;
+        return out;
+    }
+
+    /**
+     * Allocates the next 'count' counters for the provided mint URL and keyset id.
+     * The mint URL is normalized internally before allocation.
+     */
+    public allocateNext(mintUrl: string, keysetId: string, count = 1): number[] {
+        const key = buildCounterKey(mintUrl, keysetId);
+        return this.allocateNextByKey(key, count);
+    }
+
+    /**
+     * Returns a plain object snapshot of the counters suitable for serialization in kind 17376.
+     */
+    public getDeterministicCountersSnapshot(): Record<string, number> {
+        const out: Record<string, number> = {};
+        for (const [k, v] of this.deterministicCounters.entries()) out[k] = v;
+        return out;
     }
 
     /***************************
