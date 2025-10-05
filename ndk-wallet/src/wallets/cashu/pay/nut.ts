@@ -89,6 +89,33 @@ async function createTokenInMint(
             }
         );
 
+        // Wire deterministic counter increment and publisher after successful proof generation
+        if (result) {
+            try {
+                // Get active keyset id from the mint
+                const active = await cashuWallet.mint.getKeys();
+                const keysetId =
+                    active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
+                    active?.keysets?.[0]?.id;
+
+                if (keysetId) {
+                    const outputsCount =
+                        (result.result?.proofs?.length ?? 0) + (result.proofsChange?.store?.length ?? 0);
+                    const current = wallet.state.getLastUsedCounter(mint, keysetId) ?? 0;
+                    wallet.state.setLastUsedCounter(mint, keysetId, current + outputsCount);
+
+                    // Publish updated deterministic info (best-effort)
+                    try {
+                        await wallet.publishDeterministicInfo();
+                    } catch (e) {
+                        console.warn("[wallet] publishDeterministicInfo failed", e);
+                    }
+                }
+            } catch (e) {
+                console.warn("[wallet] failed to update counters after send", e);
+            }
+        }
+
         return result;
     } catch (e: any) {
         console.log("failed to pay with mint %s using proofs %o: %s", mint, e.message);
@@ -149,6 +176,28 @@ async function createTokenWithMintTransfer(
     }
 
     const { proofs, mint } = await mintProofs(targetMintWallet, quote, amount, targetMint, p2pk);
+
+    // Increment deterministic counters by number of minted proofs for the active keyset
+    try {
+        const active = await targetMintWallet.mint.getKeys();
+        const keysetId =
+            active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
+            active?.keysets?.[0]?.id;
+
+        if (keysetId) {
+            const outputsCount = proofs.length;
+            const current = wallet.state.getLastUsedCounter(mint, keysetId) ?? 0;
+            wallet.state.setLastUsedCounter(mint, keysetId, current + outputsCount);
+
+            try {
+                await wallet.publishDeterministicInfo();
+            } catch (e) {
+                console.warn("[wallet] publishDeterministicInfo failed (mint transfer)", e);
+            }
+        }
+    } catch (e) {
+        console.warn("[wallet] failed to update counters after mint transfer", e);
+    }
 
     return {
         ...payLNResult,

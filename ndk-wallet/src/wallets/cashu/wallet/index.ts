@@ -203,6 +203,26 @@ export class NDKCashuWallet extends NDKWallet {
                 const change = { store: result?.keep ?? [], destroy: result.send, mint };
                 const updateRes = await this.state.update(change);
 
+                // Increment deterministic counters for active keyset (all new outputs: send + change)
+                try {
+                    const active = await wallet.mint.getKeys();
+                    const keysetId =
+                        active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
+                        active?.keysets?.[0]?.id;
+                    if (keysetId) {
+                        const outputsCount = result.send.length + (result.keep?.length ?? 0);
+                        const current = this.state.getLastUsedCounter(mint, keysetId) ?? 0;
+                        this.state.setLastUsedCounter(mint, keysetId, current + outputsCount);
+                        try {
+                            await this.publishDeterministicInfo();
+                        } catch (e) {
+                            console.warn("[wallet] publishDeterministicInfo failed (mintNuts)", e);
+                        }
+                    }
+                } catch (e) {
+                    console.warn("[wallet] failed to update counters after mintNuts", e);
+                }
+ 
                 // create a change event
                 createOutTxEvent(
                     this.ndk,
@@ -220,7 +240,7 @@ export class NDKCashuWallet extends NDKWallet {
                     this.relaySet
                 );
                 this.emit("balance_updated");
-
+ 
                 return result;
             }
         }
