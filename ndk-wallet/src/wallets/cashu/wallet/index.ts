@@ -140,6 +140,10 @@ export class NDKCashuWallet extends NDKWallet {
         return undefined;
     }
 
+    public set bip39seed(value: Uint8Array) {
+        this._bip39seed = value;
+    }
+
     set event(e: NDKEvent | undefined) {
         this._event = e;
     }
@@ -272,6 +276,7 @@ export class NDKCashuWallet extends NDKWallet {
                 try {
                     const info = JSON.parse(wallet.deterministicInfoEvent.content);
                     if (isDeterministicCashuWalletInfoContent(info)) {
+                        wallet.bip39seed = hexToBytes(info.bip39seed);
                         countersSnapshot = info.counters;
                     }
                 } catch {
