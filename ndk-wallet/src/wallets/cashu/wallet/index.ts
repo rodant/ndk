@@ -398,6 +398,103 @@ export class NDKCashuWallet extends NDKWallet {
     }
 
     /**
+     * Publish Deterministic Cashu Wallet Info (kind 17376) as a replaceable event.
+     * - Merges local counters with the latest remote snapshot using per-key max()
+     * - Requires bip39seed to be set/derivable
+     * - Encrypts content with NIP-44
+     * - Updates this.deterministicInfoEvent on success
+     */
+    public async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<NDKEvent> {
+        const seed = this.bip39seed;
+        if (!seed) throw new Error("bip39seed not set");
+
+        const user = await this.ndk!.signer!.user();
+
+        // Local snapshot
+        const localCounters = this.state.getDeterministicCountersSnapshot();
+
+        // Merge with latest remote (per-key max)
+        const latestRemote = await this.fetchLatestDeterministicInfoEvent(user.pubkey, relaySet);
+        let mergedCounters: Record<string, number> = { ...localCounters };
+
+        if (latestRemote) {
+            try {
+                await latestRemote.decrypt();
+                const parsed = JSON.parse(latestRemote.content);
+                if (isDeterministicCashuWalletInfoContent(parsed)) {
+                    mergedCounters = this.mergeCountersMax(mergedCounters, parsed.counters ?? {});
+                }
+            } catch {
+                // ignore decrypt/parse errors and keep local snapshot
+            }
+        }
+
+        // Ensure internal state doesn't regress vs merged snapshot
+        for (const [k, v] of Object.entries(mergedCounters)) {
+            try {
+                this.state.setLastUsedCounterByKey(k, v);
+            } catch {
+                // ignore invalid key formats
+            }
+        }
+
+        // Build and publish replaceable deterministic info event
+        const info = new NDKEvent(this.ndk);
+        info.kind = DeterministicCashuWalletInfoKind as unknown as number;
+        info.tags = [];
+        info.content = JSON.stringify({
+            bip39seed: bytesToHex(seed),
+            counters: mergedCounters,
+        });
+
+        await info.encrypt(user, undefined, "nip44");
+        await info.publishReplaceable(relaySet);
+
+        this.deterministicInfoEvent = info;
+        return info;
+    }
+
+    /**
+     * Fetch the latest Deterministic Cashu Wallet Info event (kind 17376) for a pubkey.
+     * Uses max(created_at) to select the latest without relying on sort order.
+     */
+    private async fetchLatestDeterministicInfoEvent(pubkey: string, relaySet?: NDKRelaySet): Promise<NDKEvent | undefined> {
+        const filter: NDKFilter = {
+            kinds: [DeterministicCashuWalletInfoKind as unknown as number],
+            authors: [pubkey],
+            limit: 1,
+        };
+
+        const set = await this.ndk.fetchEvents(filter, undefined, relaySet);
+        if (!set || set.size === 0) return undefined;
+
+        const list = Array.from(set.values());
+        let latest: NDKEvent | undefined = undefined;
+        for (const ev of list) {
+            if (!latest || (ev.created_at ?? 0) > (latest.created_at ?? 0)) {
+                latest = ev;
+            }
+        }
+        return latest;
+    }
+
+    /**
+     * Merge counters using per-key max semantics.
+     */
+    private mergeCountersMax(
+        a: Record<string, number>,
+        b: Record<string, number>
+    ): Record<string, number> {
+        const out: Record<string, number> = { ...a };
+        for (const [k, v] of Object.entries(b)) {
+            const lv = out[k] ?? 0;
+            const nv = Number.isInteger(v) && v >= 0 ? v : 0;
+            out[k] = Math.max(lv, nv);
+        }
+        return out;
+    }
+
+    /**
      * Prepares a deposit
      * @param amount
      * @param mint
