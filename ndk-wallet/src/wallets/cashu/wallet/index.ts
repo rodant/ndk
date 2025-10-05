@@ -556,6 +556,26 @@ export class NDKCashuWallet extends NDKWallet {
         });
         const tokenEvent = updateRes.created;
 
+        // Increment deterministic counters by number of newly received proofs (active keyset)
+        try {
+            const active = await wallet.mint.getKeys();
+            const keysetId =
+                active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
+                active?.keysets?.[0]?.id;
+            if (keysetId) {
+                const outputsCount = proofs.length;
+                const current = this.state.getLastUsedCounter(mint, keysetId) ?? 0;
+                this.state.setLastUsedCounter(mint, keysetId, current + outputsCount);
+                try {
+                    await this.publishDeterministicInfo();
+                } catch (e) {
+                    console.warn("[wallet] publishDeterministicInfo failed (receiveToken)", e);
+                }
+            }
+        } catch (e) {
+            console.warn("[wallet] failed to update counters after receiveToken", e);
+        }
+
         createInTxEvent(this.ndk, proofs, mint, updateRes, { description }, this.relaySet);
 
         return tokenEvent;
@@ -608,6 +628,26 @@ export class NDKCashuWallet extends NDKWallet {
         try {
             const proofsWeHave = this.state.getProofs({ mint });
             const res = await cashuWallet.receive({ proofs, mint }, { proofsWeHave, privkey });
+
+            // Increment deterministic counters by number of newly received proofs (active keyset)
+            try {
+                const active = await cashuWallet.mint.getKeys();
+                const keysetId =
+                    active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
+                    active?.keysets?.[0]?.id;
+                if (keysetId) {
+                    const outputsCount = res.length;
+                    const current = this.state.getLastUsedCounter(mint, keysetId) ?? 0;
+                    this.state.setLastUsedCounter(mint, keysetId, current + outputsCount);
+                    try {
+                        await this.publishDeterministicInfo();
+                    } catch (e) {
+                        console.warn("[wallet] publishDeterministicInfo failed (redeemNutzaps)", e);
+                    }
+                }
+            } catch (e) {
+                console.warn("[wallet] failed to update counters after redeemNutzaps", e);
+            }
 
             const receivedAmount = proofs.reduce((acc, proof) => acc + proof.amount, 0);
             const redeemedAmount = res.reduce((acc, proof) => acc + proof.amount, 0);
