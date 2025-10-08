@@ -22,7 +22,7 @@ import NDK, {
 import { NDKCashuDeposit } from "../deposit.js";
 import createDebug from "debug";
 import type { MintUrl } from "../mint/utils.js";
-import type { CashuWallet, Proof, SendResponse } from "@cashu/cashu-ts";
+import { CashuWallet, Proof, SendResponse } from "@cashu/cashu-ts";
 import { CashuMint, getDecodedToken } from "@cashu/cashu-ts";
 import { consolidateTokens } from "../validate.js";
 import {
@@ -48,6 +48,7 @@ import { createInTxEvent, createOutTxEvent } from "./txs.js";
 import { WalletState } from "./state/index.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { DeterministicCashuWalletInfoKind, isDeterministicCashuWalletInfoContent } from "./deterministic-info.js";
+import { incrementDeterministicCounter } from "../pay/nut.js";
 
 /**
  * This class tracks state of a NIP-60 wallet
@@ -208,24 +209,8 @@ export class NDKCashuWallet extends NDKWallet {
                 const updateRes = await this.state.update(change);
 
                 // Increment deterministic counters for active keyset (all new outputs: send + change)
-                try {
-                    const active = await wallet.mint.getKeys();
-                    const keysetId =
-                        active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
-                        active?.keysets?.[0]?.id;
-                    if (keysetId) {
-                        const outputsCount = result.send.length + (result.keep?.length ?? 0);
-                        const current = this.state.getLastUsedCounter(mint, keysetId) ?? 0;
-                        this.state.setLastUsedCounter(mint, keysetId, current + outputsCount);
-                        try {
-                            await this.publishDeterministicInfo();
-                        } catch (e) {
-                            console.warn("[wallet] publishDeterministicInfo failed (mintNuts)", e);
-                        }
-                    }
-                } catch (e) {
-                    console.warn("[wallet] failed to update counters after mintNuts", e);
-                }
+                const outputsCount = result.send.length + (result.keep?.length ?? 0);
+                await incrementDeterministicCounter(this, wallet, outputsCount);
  
                 // create a change event
                 createOutTxEvent(
@@ -562,24 +547,7 @@ export class NDKCashuWallet extends NDKWallet {
         const tokenEvent = updateRes.created;
 
         // Increment deterministic counters by number of newly received proofs (active keyset)
-        try {
-            const active = await wallet.mint.getKeys();
-            const keysetId =
-                active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
-                active?.keysets?.[0]?.id;
-            if (keysetId) {
-                const outputsCount = proofs.length;
-                const current = this.state.getLastUsedCounter(mint, keysetId) ?? 0;
-                this.state.setLastUsedCounter(mint, keysetId, current + outputsCount);
-                try {
-                    await this.publishDeterministicInfo();
-                } catch (e) {
-                    console.warn("[wallet] publishDeterministicInfo failed (receiveToken)", e);
-                }
-            }
-        } catch (e) {
-            console.warn("[wallet] failed to update counters after receiveToken", e);
-        }
+        await incrementDeterministicCounter(this, wallet, proofs.length);
 
         createInTxEvent(this.ndk, proofs, mint, updateRes, { description }, this.relaySet);
 
@@ -634,25 +602,7 @@ export class NDKCashuWallet extends NDKWallet {
             const proofsWeHave = this.state.getProofs({ mint });
             const res = await cashuWallet.receive({ proofs, mint }, { proofsWeHave, privkey });
 
-            // Increment deterministic counters by number of newly received proofs (active keyset)
-            try {
-                const active = await cashuWallet.mint.getKeys();
-                const keysetId =
-                    active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
-                    active?.keysets?.[0]?.id;
-                if (keysetId) {
-                    const outputsCount = res.length;
-                    const current = this.state.getLastUsedCounter(mint, keysetId) ?? 0;
-                    this.state.setLastUsedCounter(mint, keysetId, current + outputsCount);
-                    try {
-                        await this.publishDeterministicInfo();
-                    } catch (e) {
-                        console.warn("[wallet] publishDeterministicInfo failed (redeemNutzaps)", e);
-                    }
-                }
-            } catch (e) {
-                console.warn("[wallet] failed to update counters after redeemNutzaps", e);
-            }
+            await incrementDeterministicCounter(this, cashuWallet, res.length);
 
             const receivedAmount = proofs.reduce((acc, proof) => acc + proof.amount, 0);
             const redeemedAmount = res.reduce((acc, proof) => acc + proof.amount, 0);

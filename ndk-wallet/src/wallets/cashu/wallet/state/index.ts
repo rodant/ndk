@@ -200,38 +200,6 @@ export class WalletState {
     }
 
     /**
-     * Allocates the next 'count' counters (1..count) after the last used value for a composite key.
-     * - If lastUsed is undefined, it is treated as 0 (first allocation yields [1..count]).
-     * - Updates internal lastUsed to the end of the allocated range.
-     * Returns the allocated sequence as an array of integers in ascending order.
-     */
-    public allocateNextByKey(key: string, count = 1): number[] {
-        if (!isValidCounterKey(key)) throw new Error(`invalid counter key: ${key}`);
-        if (!Number.isInteger(count) || count <= 0) throw new Error(`count must be a positive integer`);
-
-        const lastUsed = this.deterministicCounters.get(key) ?? 0;
-        const start = lastUsed + 1;
-        const end = lastUsed + count;
-
-        // Update stored lastUsed
-        this.deterministicCounters.set(key, end);
-
-        // Materialize allocated counters
-        const out = new Array<number>(count);
-        for (let i = 0; i < count; i++) out[i] = start + i;
-        return out;
-    }
-
-    /**
-     * Allocates the next 'count' counters for the provided mint URL and keyset id.
-     * The mint URL is normalized internally before allocation.
-     */
-    public allocateNext(mintUrl: string, keysetId: string, count = 1): number[] {
-        const key = buildCounterKey(mintUrl, keysetId);
-        return this.allocateNextByKey(key, count);
-    }
-
-    /**
      * Returns a plain object snapshot of the counters suitable for serialization in kind 17376.
      */
     public getDeterministicCountersSnapshot(): Record<string, number> {
