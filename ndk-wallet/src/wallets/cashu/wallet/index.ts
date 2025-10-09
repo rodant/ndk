@@ -450,7 +450,7 @@ export class NDKCashuWallet extends NDKWallet {
 
         // Build and publish replaceable deterministic info event
         const info = new NDKEvent(this.ndk);
-        info.kind = DeterministicCashuWalletInfoKind as unknown as number;
+        info.kind = DeterministicCashuWalletInfoKind;
         info.tags = [];
         info.content = JSON.stringify({
             bip39seed: bytesToHex(seed),
@@ -470,7 +470,7 @@ export class NDKCashuWallet extends NDKWallet {
      */
     private async fetchLatestDeterministicInfoEvent(pubkey: string, relaySet?: NDKRelaySet): Promise<NDKEvent | undefined> {
         const filter: NDKFilter = {
-            kinds: [DeterministicCashuWalletInfoKind as unknown as number],
+            kinds: [DeterministicCashuWalletInfoKind],
             authors: [pubkey],
             limit: 1,
         };

@@ -9,7 +9,7 @@
  * - Content is expected to be NIP-44 encrypted when published.
  */
 
-export const DeterministicCashuWalletInfoKind = 17376;
+export const DeterministicCashuWalletInfoKind: number = 17376;
 
 /**
  * Canonical key format for counters map:
