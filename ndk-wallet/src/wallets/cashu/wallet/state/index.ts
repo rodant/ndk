@@ -1,5 +1,5 @@
 import { NDKEventId, NDKCashuToken } from "@nostr-dev-kit/ndk";
-import { Proof } from "@cashu/cashu-ts";
+import { CashuMint, Proof } from "@cashu/cashu-ts";
 import { MintUrl } from "../../mint/utils";
 import { NDKCashuWallet } from "..";
 import {
@@ -94,6 +94,8 @@ export type GetTokenEntry = {
     proofEntries: ProofEntry[];
 };
 
+export type CounterEntry = { counterKey: string, counter: number | undefined }
+
 /**
  * This class represents the state of the wallet at any given time.
  * It uses information coming from relays, as well as optimistic assumptions
@@ -161,7 +163,7 @@ export class WalletState {
     /**
      * Returns the last used counter for a given composite key ("<normalized-mint>|<keyset-id>").
      */
-    public getLastUsedCounterByKey(key: string): number | undefined {
+    public getNextCounterByKey(key: string): number | undefined {
         if (!isValidCounterKey(key)) return undefined;
         return this.deterministicCounters.get(key);
     }
@@ -170,9 +172,9 @@ export class WalletState {
      * Returns the last used counter for the provided mint URL and keyset id.
      * The mint URL is normalized internally before lookup.
      */
-    public getLastUsedCounter(mintUrl: string, keysetId: string): number | undefined {
+    public getNextCounter(mintUrl: string, keysetId: string): number | undefined {
         const key = buildCounterKey(mintUrl, keysetId);
-        return this.getLastUsedCounterByKey(key);
+        return this.getNextCounterByKey(key);
     }
 
     /**
@@ -180,7 +182,7 @@ export class WalletState {
      * If the provided value is lower than the stored one, it is ignored.
      * Returns the effective value after the update.
      */
-    public setLastUsedCounterByKey(key: string, lastUsed: number): number {
+    public setNextCounterByKey(key: string, lastUsed: number): number {
         if (!isValidCounterKey(key)) throw new Error(`invalid counter key: ${key}`);
         if (!Number.isInteger(lastUsed) || lastUsed < 0) {
             throw new Error(`lastUsed counter must be a non-negative integer`);
@@ -194,9 +196,9 @@ export class WalletState {
     /**
      * Sets the last used counter for the given mint/keyset with monotonic semantics.
      */
-    public setLastUsedCounter(mintUrl: string, keysetId: string, lastUsed: number): number {
+    public setNextCounter(mintUrl: string, keysetId: string, lastUsed: number): number {
         const key = buildCounterKey(mintUrl, keysetId);
-        return this.setLastUsedCounterByKey(key, lastUsed);
+        return this.setNextCounterByKey(key, lastUsed);
     }
 
     /**
@@ -206,6 +208,19 @@ export class WalletState {
         const out: Record<string, number> = {};
         for (const [k, v] of this.deterministicCounters.entries()) out[k] = v;
         return out;
+    }
+
+    public async getCounterEntryFor(cashuMint: CashuMint): Promise<CounterEntry> {
+        const active = await cashuMint.getKeys();
+        const keysetId =
+            active.keysets.find((ks) => ks.unit === "sat")?.id ??
+            active.keysets[0]?.id;
+        const nextCounter = this.getNextCounter(cashuMint.mintUrl, keysetId);
+
+        return {
+            counterKey: buildCounterKey(cashuMint.mintUrl, keysetId),
+            counter: nextCounter
+        };
     }
 
     /***************************

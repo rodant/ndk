@@ -7,6 +7,7 @@ import { walletForMint } from "../mint";
 import { WalletOperation, withProofReserve } from "../wallet/effect";
 import { payLn } from "./ln";
 import { ensureIsCashuPubkey, mintProofs } from "../../../utils/cashu";
+import { CounterEntry } from "../wallet/state";
 
 export type NutPayment = CashuPaymentInfo & { amount: number };
 
@@ -66,6 +67,7 @@ async function createTokenInMint(
     try {
         console.log("Attempting with mint %s", mint);
 
+        const currentCounterEntry = await wallet.state.getCounterEntryFor(cashuWallet.mint);
         const result = await withProofReserve<TokenCreationResult>(
             wallet,
             cashuWallet,
@@ -73,9 +75,11 @@ async function createTokenInMint(
             amount,
             amount,
             async (proofsToUse, allOurProofs) => {
+                const counter = wallet.bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
                 const sendResult = await cashuWallet.send(amount, proofsToUse, {
                     pubkey: p2pk,
                     proofsWeHave: allOurProofs,
+                    counter
                 });
 
                 return {
@@ -90,10 +94,10 @@ async function createTokenInMint(
         );
 
         // Wire deterministic counter increment and publisher after successful proof generation
-        if (result) {
+        if (result && wallet.bip39seed) {
             const outputsCount =
                 (result.result?.proofs?.length ?? 0) + (result.proofsChange?.store?.length ?? 0);
-            await incrementDeterministicCounter(wallet, cashuWallet, outputsCount);
+            await wallet.incrementDeterministicCounter(currentCounterEntry, outputsCount);
         }
 
         return result;
@@ -155,50 +159,19 @@ async function createTokenWithMintTransfer(
         return null;
     }
 
-    const { proofs, mint } = await mintProofs(targetMintWallet, quote, amount, targetMint, p2pk);
+    const currentCounterEntry = await wallet.state.getCounterEntryFor(targetMintWallet.mint);
+    const counter = wallet.bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
+    const { proofs, mint } = await mintProofs(targetMintWallet, quote, amount, targetMint, p2pk, counter);
 
-    await incrementDeterministicCounter(wallet, targetMintWallet, proofs.length);
+    if (wallet.bip39seed) {
+        await wallet.incrementDeterministicCounter(currentCounterEntry, proofs.length);
+    }
 
     return {
         ...payLNResult,
         result: { proofs, mint },
         fee: payLNResult.fee,
     };
-}
-
-export async function incrementDeterministicCounter(wallet: NDKCashuWallet, cashuWallet: CashuWallet, counterIncrement: number, tries: number = 3) {
-    try {
-        tries--;
-        const active = await cashuWallet.mint.getKeys();
-        const keysetId =
-            active?.keysets?.find((ks: any) => ks?.unit === "sat")?.id ??
-            active?.keysets?.[0]?.id;
-
-        if (keysetId) {
-            const current = wallet.state.getLastUsedCounter(cashuWallet.mint.mintUrl, keysetId) ?? 0;
-            
-            try {
-                await wallet.publishDeterministicInfo();
-                wallet.state.setLastUsedCounter(cashuWallet.mint.mintUrl, keysetId, current + counterIncrement);
-            } catch (e) {
-                console.warn("[wallet] publishDeterministicInfo failed (mint transfer)!", e);
-                if (tries >= 0) {
-                    console.log("Retrying ...");
-                    await incrementDeterministicCounter(wallet, cashuWallet, counterIncrement, tries);
-                }
-                // If we can't publish event update the counter anyway to avoid secret collisions
-                console.error("Giving up to publish deterministic info, but at least storing the last counter locally! Mint: ", cashuWallet.mint.mintUrl);
-                wallet.state.setLastUsedCounter(cashuWallet.mint.mintUrl, keysetId, current + counterIncrement);
-            }
-        }
-    } catch (e) {
-        console.warn("[wallet] failed to update counters after mint transfer, couldn't get active keys!", e);
-        if (tries >= 0) {
-            console.log("Retrying ...");
-            await incrementDeterministicCounter(wallet, cashuWallet, counterIncrement, tries);
-        }
-        console.error("Giving up to increment deterministic counter, not possible to get active keyset from mint!", cashuWallet.mint.mintUrl);
-    }
 }
 
 /**

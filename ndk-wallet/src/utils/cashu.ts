@@ -24,7 +24,8 @@ export async function mintProofs(
     quote: MintQuoteResponse,
     amount: number,
     mint: string,
-    p2pk?: string
+    p2pk?: string,
+    counter?: number
 ): Promise<{ proofs: Proof[]; mint: string }> {
     const mintTokenAttempt = (
         resolve: (value: any) => void,
@@ -37,7 +38,7 @@ export async function mintProofs(
         console.log("minting tokens", { attempt, amount, quote: quote.quote, pubkey, mint });
 
         wallet
-            .mintProofs(amount, quote.quote, { pubkey })
+            .mintProofs(amount, quote.quote, { pubkey, counter })
             .then((mintProofs) => {
                 console.debug("minted tokens", mintProofs);
 

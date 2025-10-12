@@ -17,23 +17,19 @@ import NDK, {
     NDKKind,
     NDKPrivateKeySigner,
     NDKRelaySet,
-    NDKUser,
 } from "@nostr-dev-kit/ndk";
 import { NDKCashuDeposit } from "../deposit.js";
-import createDebug from "debug";
 import type { MintUrl } from "../mint/utils.js";
-import { CashuWallet, Proof, SendResponse } from "@cashu/cashu-ts";
-import { CashuMint, getDecodedToken } from "@cashu/cashu-ts";
+import { CashuWallet, SendResponse } from "@cashu/cashu-ts";
+import { getDecodedToken } from "@cashu/cashu-ts";
 import { consolidateTokens } from "../validate.js";
 import {
     NDKWallet,
     NDKWalletBalance,
-    NDKWalletEvents,
     NDKWalletStatus,
     NDKWalletTypes,
     RedeemNutzapsOpts,
 } from "../../index.js";
-import { EventEmitter } from "tseep";
 import { eventDupHandler, eventHandler } from "../event-handlers/index.js";
 import { NDKCashuDepositMonitor } from "../deposit-monitor.js";
 
@@ -45,10 +41,11 @@ export type WalletWarning = {
 
 import { PaymentHandler, PaymentWithOptionalZapInfo } from "./payment.js";
 import { createInTxEvent, createOutTxEvent } from "./txs.js";
-import { WalletState } from "./state/index.js";
+import { CounterEntry, WalletState } from "./state/index.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { DeterministicCashuWalletInfoKind, isDeterministicCashuWalletInfoContent } from "./deterministic-info.js";
-import { incrementDeterministicCounter } from "../pay/nut.js";
+
+export { DeterministicCashuWalletInfoKind };
 
 /**
  * This class tracks state of a NIP-60 wallet
@@ -196,21 +193,26 @@ export class NDKCashuWallet extends NDKWallet {
         for (const mint of this.mints) {
             const wallet = await this.getCashuWallet(mint, this._bip39seed);
             const mintProofs = await this.state.getProofs({ mint });
+            const currentCounterEntry = await this.state.getCounterEntryFor(wallet.mint);
+            const counter = this._bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
             result = await wallet.send(totalAmount, mintProofs, {
                 proofsWeHave: mintProofs,
                 includeFees: true,
                 outputAmounts: {
                     sendAmounts: amounts,
                 },
+                counter
             });
 
             if (result.send.length > 0) {
                 const change = { store: result?.keep ?? [], destroy: result.send, mint };
                 const updateRes = await this.state.update(change);
 
-                // Increment deterministic counters for active keyset (all new outputs: send + change)
-                const outputsCount = result.send.length + (result.keep?.length ?? 0);
-                await incrementDeterministicCounter(this, wallet, outputsCount);
+                if (this._bip39seed) {
+                    // Increment deterministic counters for active keyset (all new outputs: send + change)
+                    const outputsCount = result.send.length + (result.keep?.length ?? 0);
+                    await this.incrementDeterministicCounter(currentCounterEntry, outputsCount);
+                }
  
                 // create a change event
                 createOutTxEvent(
@@ -403,8 +405,38 @@ export class NDKCashuWallet extends NDKWallet {
             const user = await this.ndk!.signer!.user();
             await this.event.encrypt(user, undefined, "nip44");
         }
+        const eventPromise = this.event.publishReplaceable(this.relaySet);
+        const deterministicWalletPromise = this.publishDeterministicInfo(this.relaySet);
+        const resultPromise = Promise.all([eventPromise, deterministicWalletPromise]);
+        // TODO (rodant): improve by returning the intersections of the relays from both events
+        return resultPromise.then(r => r[0]);
+    }
 
-        return this.event.publishReplaceable(this.relaySet);
+    public async incrementDeterministicCounter(currentCounterEntry: CounterEntry, counterIncrement: number, tries: number = 3) {
+        try {
+            tries--;
+            const { counterKey, counter } = currentCounterEntry; 
+            try {
+                this.state.setNextCounterByKey(counterKey, counter ?? 0 + counterIncrement);
+                await this.publishDeterministicInfo();
+            } catch (e) {
+                console.warn("[wallet] publishDeterministicInfo failed (mint transfer)!", e);
+                if (tries >= 0) {
+                    console.log("Retrying ...");
+                    await this.incrementDeterministicCounter(currentCounterEntry, counterIncrement, tries);
+                }
+                // If we can't publish event update the counter anyway to avoid secret collisions
+                console.error("Giving up to publish deterministic info, but at least storing the last counter locally! Counter-Key: ", currentCounterEntry.counterKey);
+                this.state.setNextCounterByKey(counterKey, counter ?? 0 + counterIncrement);
+            }
+        } catch (e) {
+            console.warn("[wallet] failed to update counters after mint transfer, couldn't get active keys!", e);
+            if (tries >= 0) {
+                console.log("Retrying ...");
+                await this.incrementDeterministicCounter(currentCounterEntry, counterIncrement, tries);
+            }
+            console.error("Giving up to increment deterministic counter, not possible to get active keyset from mint!", currentCounterEntry.counterKey);
+        }
     }
 
     /**
@@ -414,7 +446,7 @@ export class NDKCashuWallet extends NDKWallet {
      * - Encrypts content with NIP-44
      * - Updates this.deterministicInfoEvent on success
      */
-    public async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<NDKEvent> {
+    private async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<NDKEvent> {
         const seed = this.bip39seed;
         if (!seed) throw new Error("bip39seed not set");
 
@@ -442,7 +474,7 @@ export class NDKCashuWallet extends NDKWallet {
         // Ensure internal state doesn't regress vs merged snapshot
         for (const [k, v] of Object.entries(mergedCounters)) {
             try {
-                this.state.setLastUsedCounterByKey(k, v);
+                this.state.setNextCounterByKey(k, v);
             } catch {
                 // ignore invalid key formats
             }
@@ -460,7 +492,11 @@ export class NDKCashuWallet extends NDKWallet {
         await info.encrypt(user, undefined, "nip44");
         await info.publishReplaceable(relaySet);
 
-        this.deterministicInfoEvent = info;
+        try {
+            // we store locally in the instance always the clear text event
+            await info.decrypt();
+            this.deterministicInfoEvent = info;
+        } catch {}
         return info;
     }
 
@@ -538,7 +574,9 @@ export class NDKCashuWallet extends NDKWallet {
     public async receiveToken(token: string, description?: string) {
         let { mint } = getDecodedToken(token);
         const wallet = await this.getCashuWallet(mint, this._bip39seed);
-        const proofs = await wallet.receive(token);
+        const currentCounterEntry = await this.state.getCounterEntryFor(wallet.mint);
+        const counter = this._bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
+        const proofs = await wallet.receive(token, { counter });
 
         const updateRes = await this.state.update({
             store: proofs,
@@ -546,8 +584,10 @@ export class NDKCashuWallet extends NDKWallet {
         });
         const tokenEvent = updateRes.created;
 
-        // Increment deterministic counters by number of newly received proofs (active keyset)
-        await incrementDeterministicCounter(this, wallet, proofs.length);
+        if (this._bip39seed) {
+            // Increment deterministic counters by number of newly received proofs (active keyset)
+            await this.incrementDeterministicCounter(currentCounterEntry, proofs.length);
+        }
 
         createInTxEvent(this.ndk, proofs, mint, updateRes, { description }, this.relaySet);
 
@@ -600,9 +640,13 @@ export class NDKCashuWallet extends NDKWallet {
 
         try {
             const proofsWeHave = this.state.getProofs({ mint });
-            const res = await cashuWallet.receive({ proofs, mint }, { proofsWeHave, privkey });
+            const currentCounterEntry = await this.state.getCounterEntryFor(cashuWallet.mint);
+            const counter = this._bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
+            const res = await cashuWallet.receive({ proofs, mint }, { proofsWeHave, privkey, counter });
 
-            await incrementDeterministicCounter(this, cashuWallet, res.length);
+            if (this._bip39seed) {
+                await this.incrementDeterministicCounter(currentCounterEntry, res.length);
+            }
 
             const receivedAmount = proofs.reduce((acc, proof) => acc + proof.amount, 0);
             const redeemedAmount = res.reduce((acc, proof) => acc + proof.amount, 0);
