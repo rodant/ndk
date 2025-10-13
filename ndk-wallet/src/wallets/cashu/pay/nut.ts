@@ -97,7 +97,7 @@ async function createTokenInMint(
         if (result && wallet.bip39seed) {
             const outputsCount =
                 (result.result?.proofs?.length ?? 0) + (result.proofsChange?.store?.length ?? 0);
-            await wallet.incrementDeterministicCounter(currentCounterEntry, outputsCount);
+            outputsCount && await wallet.incrementDeterministicCounter(currentCounterEntry, outputsCount);
         }
 
         return result;
@@ -163,7 +163,7 @@ async function createTokenWithMintTransfer(
     const counter = wallet.bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
     const { proofs, mint } = await mintProofs(targetMintWallet, quote, amount, targetMint, p2pk, counter);
 
-    if (wallet.bip39seed) {
+    if (wallet.bip39seed && proofs.length) {
         await wallet.incrementDeterministicCounter(currentCounterEntry, proofs.length);
     }
 

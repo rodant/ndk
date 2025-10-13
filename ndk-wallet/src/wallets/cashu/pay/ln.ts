@@ -96,9 +96,14 @@ async function executePayment(
             amountToSend,
             amountWithoutFees,
             async (proofsToUse, allOurProofs) => {
-                const meltResult = await cashuWallet.meltProofs(meltQuote, proofsToUse);
+                const counterEntry = await wallet.state.getCounterEntryFor(cashuWallet.mint);
+                const counter = wallet.bip39seed ? counterEntry.counter ?? 0 : undefined;
+                const meltResult = await cashuWallet.meltProofs(meltQuote, proofsToUse, { counter });
 
                 if (meltResult.quote.state === MeltQuoteState.PAID) {
+                    if (wallet.bip39seed && meltResult.change.length) {
+                        await wallet.incrementDeterministicCounter(counterEntry, meltResult.change.length);
+                    }
                     return {
                         result: {
                             preimage: meltResult.quote.payment_preimage ?? "",
