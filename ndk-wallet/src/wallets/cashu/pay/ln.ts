@@ -102,7 +102,7 @@ async function executePayment(
 
                 if (meltResult.quote.state === MeltQuoteState.PAID) {
                     if (wallet.bip39seed && meltResult.change.length) {
-                        await wallet.incrementDeterministicCounter(counterEntry, meltResult.change.length);
+                        await wallet.incrementDeterministicCounter(counterEntry.counterKey, meltResult.change.length);
                     }
                     return {
                         result: {

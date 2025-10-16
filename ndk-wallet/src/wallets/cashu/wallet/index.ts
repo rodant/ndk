@@ -211,7 +211,7 @@ export class NDKCashuWallet extends NDKWallet {
                 if (this._bip39seed) {
                     // Increment deterministic counters for active keyset (all new outputs: send + change)
                     const outputsCount = result.send.length + (result.keep?.length ?? 0);
-                    outputsCount && await this.incrementDeterministicCounter(currentCounterEntry, outputsCount);
+                    outputsCount && await this.incrementDeterministicCounter(currentCounterEntry.counterKey, outputsCount);
                 }
  
                 // create a change event
@@ -412,20 +412,20 @@ export class NDKCashuWallet extends NDKWallet {
         return resultPromise.then(r => r[0]);
     }
 
-    public async incrementDeterministicCounter(currentCounterEntry: CounterEntry, counterIncrement: number, tries: number = 3) {
+    public async incrementDeterministicCounter(counterKey: string, counterIncrement: number, tries: number = 3) {
         tries--;
-        const { counterKey, counter } = currentCounterEntry;
         try {
-            this.state.setNextCounterByKey(counterKey, counter ?? 0 + counterIncrement);
+            const counter = this.state.getNextCounterByKey(counterKey);
+            this.state.setNextCounterByKey(counterKey, (counter ?? 0) + counterIncrement);
             await this.publishDeterministicInfo();
         } catch (e) {
             console.warn("[wallet] publishDeterministicInfo failed (mint transfer)!", e);
             if (tries >= 0) {
                 console.log("Retrying ...");
-                await this.incrementDeterministicCounter(currentCounterEntry, counterIncrement, tries);
+                await this.incrementDeterministicCounter(counterKey, 0, tries);
             }
             // If we can't publish event update the counter anyway to avoid secret collisions
-            console.error("Giving up to publish deterministic info, but at least stored the last counter locally! Counter-Key: ", currentCounterEntry.counterKey);
+            console.error("Giving up to publish deterministic info, but at least stored the last counter locally! Counter-Key: ", counterKey);
         }
     }
 
@@ -576,7 +576,7 @@ export class NDKCashuWallet extends NDKWallet {
 
         if (this._bip39seed && proofs.length) {
             // Increment deterministic counters by number of newly received proofs (active keyset)
-            await this.incrementDeterministicCounter(currentCounterEntry, proofs.length);
+            await this.incrementDeterministicCounter(currentCounterEntry.counterKey, proofs.length);
         }
 
         createInTxEvent(this.ndk, proofs, mint, updateRes, { description }, this.relaySet);
@@ -635,7 +635,7 @@ export class NDKCashuWallet extends NDKWallet {
             const res = await cashuWallet.receive({ proofs, mint }, { proofsWeHave, privkey, counter });
 
             if (this._bip39seed && res.length) {
-                await this.incrementDeterministicCounter(currentCounterEntry, res.length);
+                await this.incrementDeterministicCounter(currentCounterEntry.counterKey, res.length);
             }
 
             const receivedAmount = proofs.reduce((acc, proof) => acc + proof.amount, 0);

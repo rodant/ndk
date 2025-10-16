@@ -138,7 +138,7 @@ export class NDKCashuDeposit extends EventEmitter<{
             });
             if (proofs.length === 0) return;
             if (this.wallet.bip39seed) {
-                await this.wallet.incrementDeterministicCounter(currentCounterEntry, proofs.length);
+                await this.wallet.incrementDeterministicCounter(currentCounterEntry.counterKey, proofs.length);
             }
         } catch (e: any) {
             if (e.message.match(/not paid/i)) return;
