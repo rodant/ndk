@@ -1,5 +1,6 @@
 import NDK, { NDKCashuMintList, NDKEvent, NDKKind, NDKPrivateKeySigner } from "@nostr-dev-kit/ndk";
 import { NDKCashuWallet } from ".";
+import { privateDecrypt } from "crypto";
 
 /**
  * This function checks if the user had legacy cashu wallets, if they do, it migrates them to the new format.
@@ -107,11 +108,16 @@ async function extractInfoFromLegacyWallet(wallet: NDKEvent) {
         }
         wallet.content = origContent;
 
-        const signer = new NDKPrivateKeySigner(privkey);
-
-        return { privkey, mints };
+        if (privkey) {
+            const signer = new NDKPrivateKeySigner(privkey);
+            return { privkey, mints };   
+        }
     } catch (error) {
         console.error("Error decrypting legacy wallet", error);
+    }
+
+    if (!privkey) {
+        console.log("Error no private key in legacy wallet event. Wallet migration isn't possible!");
     }
 
     return { privkey, mints };

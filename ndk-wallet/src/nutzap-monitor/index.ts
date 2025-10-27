@@ -326,9 +326,9 @@ export class NDKNutzapMonitor
                 // We skip validation so the user knows about nutzaps that were sent but are not valid
                 // this way tooling can be more comprehensive and include nutzaps that were not valid
                 skipValidation: true,
+                relaySet: this.relaySet,
                 ...opts,
             },
-            this.relaySet,
             {
                 onEvent: (event) => this.eventHandler(event),
             }

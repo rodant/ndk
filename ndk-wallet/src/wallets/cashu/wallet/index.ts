@@ -416,8 +416,10 @@ export class NDKCashuWallet extends NDKWallet {
         tries--;
         try {
             const counter = this.state.getNextCounterByKey(counterKey);
-            this.state.setNextCounterByKey(counterKey, (counter ?? 0) + counterIncrement);
+            const nextCounter = (counter ?? 0) + counterIncrement;
+            this.state.setNextCounterByKey(counterKey, nextCounter);
             await this.publishDeterministicInfo();
+            console.log(`Published new counter ${nextCounter} for mint ${counterKey}`);
         } catch (e) {
             console.warn("[wallet] publishDeterministicInfo failed (mint transfer)!", e);
             if (tries >= 0) {
