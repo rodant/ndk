@@ -7,6 +7,7 @@ import type { MintUrl } from "../mint/utils";
 import { type WalletOperation, withProofReserve } from "../wallet/effect";
 import type { NDKCashuWallet } from "../wallet/index.js";
 import { payLn } from "./ln";
+import { CounterEntry } from "../wallet/state";
 
 export type NutPayment = CashuPaymentInfo & { amount: number };
 
@@ -82,10 +83,11 @@ async function createTokenInMint(
 ): Promise<WalletOperation<TokenCreationResult> | null> {
     console.log("[createTokenInMint] Starting", { mint, amount, p2pk });
 
-    const cashuWallet = await wallet.getCashuWallet(mint);
+    const cashuWallet = await wallet.getCashuWallet(mint, wallet.bip39seed);
     console.log("[createTokenInMint] Got cashu wallet for mint", mint);
 
     try {
+        const currentCounterEntry = await wallet.state.getCounterEntryFor(cashuWallet.mint);
         const result = await withProofReserve<TokenCreationResult>(
             wallet,
             cashuWallet,
@@ -97,10 +99,11 @@ async function createTokenInMint(
                     proofsToUseCount: proofsToUse.length,
                     allOurProofsCount: allOurProofs.length,
                 });
-
+                const counter = wallet.bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
                 const sendResult = await cashuWallet.send(amount, proofsToUse, {
                     pubkey: p2pk,
                     proofsWeHave: allOurProofs,
+                    counter,
                 });
 
                 console.log("[createTokenInMint] Send result", {
@@ -118,6 +121,13 @@ async function createTokenInMint(
                 };
             },
         );
+
+        // Wire deterministic counter increment and publisher after successful proof generation
+        if (result && wallet.bip39seed) {
+            const outputsCount =
+                (result.result?.proofs?.length ?? 0) + (result.proofsChange?.store?.length ?? 0);
+            outputsCount && await wallet.incrementDeterministicCounter(currentCounterEntry.counterKey, outputsCount);
+        }
 
         console.log("[createTokenInMint] Success", result);
         return result;
@@ -140,7 +150,7 @@ async function createTokenWithMintTransfer(
 ): Promise<WalletOperation<TokenCreationResult> | null> {
     const generateQuote = async () => {
         const generateQuoteFromSomeMint = async (mint: MintUrl) => {
-            const targetMintWallet = await walletForMint(mint);
+            const targetMintWallet = await walletForMint(mint, { bip39seed: wallet.bip39seed });
             if (!targetMintWallet) throw new Error(`unable to load wallet for mint ${mint}`);
             const quote = await targetMintWallet.createMintQuote(amount);
             return { quote, mint, targetMintWallet };
@@ -175,7 +185,13 @@ async function createTokenWithMintTransfer(
         return null;
     }
 
-    const { proofs, mint } = await mintProofs(targetMintWallet, quote, amount, targetMint, p2pk);
+    const currentCounterEntry = await wallet.state.getCounterEntryFor(targetMintWallet.mint);
+    const counter = wallet.bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
+    const { proofs, mint } = await mintProofs(targetMintWallet, quote, amount, targetMint, p2pk, counter);
+
+    if (wallet.bip39seed && proofs.length) {
+        await wallet.incrementDeterministicCounter(currentCounterEntry.counterKey, proofs.length);
+    }
 
     return {
         ...payLNResult,

@@ -31,7 +31,7 @@ export async function consolidateMintTokens(
     onFailure?: (error: string) => void,
 ) {
     allProofs ??= wallet.state.getProofs({ mint, includeDeleted: true, onlyAvailable: false });
-    const _wallet = await walletForMint(mint);
+    const _wallet = await walletForMint(mint, { bip39seed: wallet.bip39seed });
     if (!_wallet) {
         return;
     }
@@ -67,7 +67,12 @@ export async function consolidateMintTokens(
 
     onResult?.(walletChange);
 
-    const _totalSpentProofs = spentProofs.reduce((acc, proof) => acc + proof.amount, 0);
+    console.log(
+        "Found %d spent, %d unspent, %d pending proofs",
+        walletChange.destroy?.length,
+        walletChange.store?.length,
+        pendingProofs.length
+    );
 
     // if no spent proofs return as a noop
     if (walletChange.destroy?.length === 0) return;

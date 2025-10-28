@@ -47,6 +47,11 @@ import { PaymentHandler, type PaymentWithOptionalZapInfo } from "./payment.js";
 import { WalletState } from "./state/index.js";
 import { createInTxEvent, createOutTxEvent } from "./txs.js";
 
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
+import { DeterministicCashuWalletInfoKind, isDeterministicCashuWalletInfoContent } from "./deterministic-info.js";
+
+export { DeterministicCashuWalletInfoKind };
+
 /**
  * This class tracks state of a NIP-60 wallet
  *
@@ -61,6 +66,7 @@ export class NDKCashuWallet extends NDKWallet {
         return "nip-60";
     }
 
+    private _bip39seed?: Uint8Array;
     public _p2pk: string | undefined;
     private sub?: NDKSubscription;
 
@@ -86,6 +92,12 @@ export class NDKCashuWallet extends NDKWallet {
     public mints: string[] = [];
     public privkeys = new Map<string, NDKPrivateKeySigner>();
     public signer?: NDKPrivateKeySigner;
+
+    /**
+     * Optional Deterministic Cashu Wallet Info (kind 17376) event.
+     * When present, bip39seed is derived from its content.
+     */
+    public deterministicInfoEvent?: NDKEvent;
 
     public walletId = "nip-60";
 
@@ -118,8 +130,21 @@ export class NDKCashuWallet extends NDKWallet {
 
     private _walletRelays: string[] = [];
 
-    constructor(ndk: NDK) {
+    constructor(ndk: NDK, bip39seed?: Uint8Array) {
         super(ndk);
+        // If a seed is provided, initialize a deterministic info snapshot carrying it.
+        if (bip39seed) {
+            this._bip39seed = bip39seed;
+            const info = new NDKEvent(ndk);
+            info.kind = DeterministicCashuWalletInfoKind;
+            info.tags = [];
+            info.content = JSON.stringify({
+                bip39seed: bytesToHex(bip39seed),
+                counters: {},
+            });
+            this.deterministicInfoEvent = info;
+        }
+
         this.ndk = ndk;
         this.paymentHandler = new PaymentHandler(this);
         this.state = new WalletState(this);
@@ -132,6 +157,30 @@ export class NDKCashuWallet extends NDKWallet {
             this.onMintKeysNeeded = callbacks.onMintKeysNeeded;
             this.onMintKeysLoaded = callbacks.onMintKeysLoaded;
         }
+    }
+
+    public get bip39seed(): Uint8Array | undefined {
+        if (this._bip39seed) return this._bip39seed;
+
+        // If a deterministic info event is available and already decrypted,
+        // attempt to derive the seed from it.
+        if (this.deterministicInfoEvent?.content) {
+            try {
+                const content = JSON.parse(this.deterministicInfoEvent.content);
+                if (isDeterministicCashuWalletInfoContent(content)) {
+                    this._bip39seed = hexToBytes(content.bip39seed);
+                    return this._bip39seed;
+                }
+            } catch {
+                // content might be still encrypted or malformed; ignore
+            }
+        }
+
+        return undefined;
+    }
+
+    public set bip39seed(value: Uint8Array) {
+        this._bip39seed = value;
     }
 
     /**
@@ -169,20 +218,29 @@ export class NDKCashuWallet extends NDKWallet {
         const totalAmount = amounts.reduce((acc, amount) => acc + amount, 0);
 
         for (const mint of this.mints) {
-            const wallet = await this.getCashuWallet(mint);
+            const wallet = await this.getCashuWallet(mint, this._bip39seed);
             const mintProofs = await this.state.getProofs({ mint });
+            const currentCounterEntry = await this.state.getCounterEntryFor(wallet.mint);
+            const counter = this._bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
             result = await wallet.send(totalAmount, mintProofs, {
                 proofsWeHave: mintProofs,
                 includeFees: true,
                 outputAmounts: {
                     sendAmounts: amounts,
                 },
+                counter
             });
 
             if (result.send.length > 0) {
                 const change = { store: result?.keep ?? [], destroy: result.send, mint };
                 const updateRes = await this.state.update(change);
 
+                if (this._bip39seed) {
+                    // Increment deterministic counters for active keyset (all new outputs: send + change)
+                    const outputsCount = result.send.length + (result.keep?.length ?? 0);
+                    outputsCount && await this.incrementDeterministicCounter(currentCounterEntry.counterKey, outputsCount);
+                }
+ 
                 // create a change event
                 createOutTxEvent(
                     this.ndk,
@@ -255,11 +313,37 @@ export class NDKCashuWallet extends NDKWallet {
         await this.getP2pk();
     }
 
-    static async from(event: NDKEvent): Promise<NDKCashuWallet | undefined> {
+    static async from(event: NDKEvent, deterministicInfoEvent?: NDKEvent): Promise<NDKCashuWallet | undefined> {
         if (!event.ndk) throw new Error("no ndk instance on event");
 
-        const wallet = new NDKCashuWallet(event.ndk);
+        const wallet = new NDKCashuWallet(event.ndk, undefined);
         await wallet.loadFromEvent(event);
+        // TODO (rodant): get rid of the field storing the event
+        wallet.deterministicInfoEvent = deterministicInfoEvent;
+
+        // Try to have deterministic info ready for synchronous getter usage
+        if (wallet.deterministicInfoEvent) {
+            try {
+                await wallet.deterministicInfoEvent.decrypt();
+            } catch (e) {
+                // ignore; getter will handle absence
+            }
+
+            // Initialize WalletState with counters snapshot parsed from deterministic info
+            let countersSnapshot: Record<string, number> | undefined;
+            if (wallet.deterministicInfoEvent.content) {
+                try {
+                    const info = JSON.parse(wallet.deterministicInfoEvent.content);
+                    if (isDeterministicCashuWalletInfoContent(info)) {
+                        wallet.bip39seed = hexToBytes(info.bip39seed);
+                        countersSnapshot = info.counters;
+                    }
+                } catch {
+                    // ignore parse errors
+                }
+            }
+            wallet.state = new WalletState(wallet, new Set<string>(), countersSnapshot ?? {});
+        }
 
         return wallet;
     }
@@ -280,6 +364,7 @@ export class NDKCashuWallet extends NDKWallet {
      *   ['wss://relay.example.com']
      * );
      */
+    // TODO (rodant): add bip39seed parameter
     static async create(ndk: NDK, mints: string[], relays?: string[]): Promise<NDKCashuWallet> {
         const wallet = new NDKCashuWallet(ndk);
 
@@ -559,7 +644,11 @@ export class NDKCashuWallet extends NDKWallet {
         const user = await this.ndk?.signer?.user();
         await event.encrypt(user, undefined, "nip44");
 
-        return event.publish(this.relaySet);
+        const eventPromise = event.publish(this.relaySet);
+        const deterministicWalletPromise = this.publishDeterministicInfo(this.relaySet);
+        const resultPromise = Promise.all([eventPromise, deterministicWalletPromise]);
+        // TODO (rodant): improve by returning the intersections of the relays from both events
+        return resultPromise.then(r => r[0]);
     }
 
     /**
@@ -596,6 +685,7 @@ export class NDKCashuWallet extends NDKWallet {
      *   relays: ['wss://relay.example.com']
      * });
      */
+    //TODO (rodant): update the deterministic wallet event as well?
     async update(config: { mints: string[]; relays?: string[] }) {
         // Update mints
         this.mints = config.mints;
@@ -619,6 +709,126 @@ export class NDKCashuWallet extends NDKWallet {
         await event.encrypt(user, undefined, "nip44");
 
         return event.publishReplaceable(this.relaySet);
+    }
+
+    public async incrementDeterministicCounter(counterKey: string, counterIncrement: number, tries: number = 3) {
+        tries--;
+        try {
+            const counter = this.state.getNextCounterByKey(counterKey);
+            const nextCounter = (counter ?? 0) + counterIncrement;
+            this.state.setNextCounterByKey(counterKey, nextCounter);
+            await this.publishDeterministicInfo();
+            console.log(`Published new counter ${nextCounter} for mint ${counterKey}`);
+        } catch (e) {
+            console.warn("[wallet] publishDeterministicInfo failed (mint transfer)!", e);
+            if (tries >= 0) {
+                console.log("Retrying ...");
+                await this.incrementDeterministicCounter(counterKey, 0, tries);
+            }
+            // If we can't publish event update the counter anyway to avoid secret collisions
+            console.error("Giving up to publish deterministic info, but at least stored the last counter locally! Counter-Key: ", counterKey);
+        }
+    }
+
+    /**
+     * Publish Deterministic Cashu Wallet Info (kind 17376) as a replaceable event.
+     * - Merges local counters with the latest remote snapshot using per-key max()
+     * - Requires bip39seed to be set/derivable
+     * - Encrypts content with NIP-44
+     * - Updates this.deterministicInfoEvent on success
+     */
+    private async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<NDKEvent> {
+        const seed = this.bip39seed;
+        if (!seed) throw new Error("bip39seed not set");
+
+        const user = await this.ndk!.signer!.user();
+
+        // Local snapshot
+        const localCounters = this.state.getDeterministicCountersSnapshot();
+
+        // Merge with latest remote (per-key max)
+        const latestRemote = await this.fetchLatestDeterministicInfoEvent(user.pubkey, relaySet);
+        let mergedCounters: Record<string, number> = { ...localCounters };
+
+        if (latestRemote) {
+            try {
+                await latestRemote.decrypt();
+                const parsed = JSON.parse(latestRemote.content);
+                if (isDeterministicCashuWalletInfoContent(parsed)) {
+                    mergedCounters = this.mergeCountersMax(mergedCounters, parsed.counters ?? {});
+                }
+            } catch {
+                // ignore decrypt/parse errors and keep local snapshot
+            }
+        }
+
+        // Ensure internal state doesn't regress vs merged snapshot
+        for (const [k, v] of Object.entries(mergedCounters)) {
+            try {
+                this.state.setNextCounterByKey(k, v);
+            } catch {
+                // ignore invalid key formats
+            }
+        }
+
+        // Build and publish replaceable deterministic info event
+        const info = new NDKEvent(this.ndk);
+        info.kind = DeterministicCashuWalletInfoKind;
+        info.tags = [];
+        info.content = JSON.stringify({
+            bip39seed: bytesToHex(seed),
+            counters: mergedCounters,
+        });
+
+        await info.encrypt(user, undefined, "nip44");
+        await info.publishReplaceable(relaySet);
+
+        try {
+            // we store locally in the instance always the clear text event
+            await info.decrypt();
+            this.deterministicInfoEvent = info;
+        } catch {}
+        return info;
+    }
+
+    /**
+     * Fetch the latest Deterministic Cashu Wallet Info event (kind 17376) for a pubkey.
+     * Uses max(created_at) to select the latest without relying on sort order.
+     */
+    private async fetchLatestDeterministicInfoEvent(pubkey: string, relaySet?: NDKRelaySet): Promise<NDKEvent | undefined> {
+        const filter: NDKFilter = {
+            kinds: [DeterministicCashuWalletInfoKind],
+            authors: [pubkey],
+            limit: 1,
+        };
+
+        const set = await this.ndk.fetchEvents(filter, undefined, relaySet);
+        if (!set || set.size === 0) return undefined;
+
+        const list = Array.from(set.values());
+        let latest: NDKEvent | undefined = undefined;
+        for (const ev of list) {
+            if (!latest || (ev.created_at ?? 0) > (latest.created_at ?? 0)) {
+                latest = ev;
+            }
+        }
+        return latest;
+    }
+
+    /**
+     * Merge counters using per-key max semantics.
+     */
+    private mergeCountersMax(
+        a: Record<string, number>,
+        b: Record<string, number>
+    ): Record<string, number> {
+        const out: Record<string, number> = { ...a };
+        for (const [k, v] of Object.entries(b)) {
+            const lv = out[k] ?? 0;
+            const nv = Number.isInteger(v) && v >= 0 ? v : 0;
+            out[k] = Math.max(lv, nv);
+        }
+        return out;
     }
 
     /**
@@ -652,14 +862,21 @@ export class NDKCashuWallet extends NDKWallet {
      */
     public async receiveToken(token: string, description?: string) {
         const { mint } = getDecodedToken(token);
-        const wallet = await this.getCashuWallet(mint);
-        const proofs = await wallet.receive(token);
+        const wallet = await this.getCashuWallet(mint, this._bip39seed);
+        const currentCounterEntry = await this.state.getCounterEntryFor(wallet.mint);
+        const counter = this._bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
+        const proofs = await wallet.receive(token, { counter });
 
         const updateRes = await this.state.update({
             store: proofs,
             mint,
         });
         const tokenEvent = updateRes.created;
+
+        if (this._bip39seed && proofs.length) {
+            // Increment deterministic counters by number of newly received proofs (active keyset)
+            await this.incrementDeterministicCounter(currentCounterEntry.counterKey, proofs.length);
+        }
 
         createInTxEvent(this.ndk, proofs, mint, updateRes, { description }, this.relaySet);
 
@@ -702,7 +919,7 @@ export class NDKCashuWallet extends NDKWallet {
             mint ??= cashuWallet.mint.mintUrl;
         } else {
             if (!mint) throw new Error("mint not set");
-            cashuWallet = await this.getCashuWallet(mint);
+            cashuWallet = await this.getCashuWallet(mint, this._bip39seed);
         }
 
         if (!mint) throw new Error("mint not set");
@@ -710,7 +927,13 @@ export class NDKCashuWallet extends NDKWallet {
 
         try {
             const proofsWeHave = this.state.getProofs({ mint });
-            const res = await cashuWallet.receive({ proofs, mint }, { proofsWeHave, privkey });
+            const currentCounterEntry = await this.state.getCounterEntryFor(cashuWallet.mint);
+            const counter = this._bip39seed ? currentCounterEntry.counter ?? 0 : undefined;
+            const res = await cashuWallet.receive({ proofs, mint }, { proofsWeHave, privkey, counter });
+
+            if (this._bip39seed && res.length) {
+                await this.incrementDeterministicCounter(currentCounterEntry.counterKey, res.length);
+            }
 
             const receivedAmount = proofs.reduce((acc, proof) => acc + proof.amount, 0);
             const redeemedAmount = res.reduce((acc, proof) => acc + proof.amount, 0);

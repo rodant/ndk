@@ -82,7 +82,7 @@ async function executePayment(
     amountWithoutFees: number,
     wallet: NDKCashuWallet,
 ): Promise<WalletOperation<NDKPaymentConfirmationLN> | null> {
-    const cashuWallet = await wallet.getCashuWallet(mint);
+    const cashuWallet = await wallet.getCashuWallet(mint, wallet.bip39seed);
 
     try {
         const meltQuote = await cashuWallet.createMeltQuote(pr);
@@ -95,9 +95,14 @@ async function executePayment(
             amountToSend,
             amountWithoutFees,
             async (proofsToUse, _allOurProofs) => {
-                const meltResult = await cashuWallet.meltProofs(meltQuote, proofsToUse);
+                const counterEntry = await wallet.state.getCounterEntryFor(cashuWallet.mint);
+                const counter = wallet.bip39seed ? counterEntry.counter ?? 0 : undefined;
+                const meltResult = await cashuWallet.meltProofs(meltQuote, proofsToUse, { counter });
 
                 if (meltResult.quote.state === MeltQuoteState.PAID) {
+                    if (wallet.bip39seed && meltResult.change.length) {
+                        await wallet.incrementDeterministicCounter(counterEntry.counterKey, meltResult.change.length);
+                    }
                     return {
                         result: {
                             preimage: meltResult.quote.payment_preimage ?? "",

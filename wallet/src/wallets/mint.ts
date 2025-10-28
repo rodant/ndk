@@ -66,13 +66,14 @@ export interface MintInterface {
     /**
      * Get a cashu wallet for a mint.
      */
-    getCashuWallet(mint: string): Promise<CashuWallet>;
+    getCashuWallet(mint: string, bip39seed?: Uint8Array): Promise<CashuWallet>;
 }
 
-export async function getCashuWallet(this: MintInterface, mint: string): Promise<CashuWallet> {
+export async function getCashuWallet(this: MintInterface, mint: string, bip39seed?: Uint8Array): Promise<CashuWallet> {
     if (this.cashuWallets.has(mint)) return this.cashuWallets.get(mint) as CashuWallet;
 
     const w = await walletForMint(mint, {
+        bip39seed: bip39seed,
         onMintInfoNeeded: this.onMintInfoNeeded,
         onMintInfoLoaded: this.onMintInfoLoaded,
         onMintKeysNeeded: this.onMintKeysNeeded,

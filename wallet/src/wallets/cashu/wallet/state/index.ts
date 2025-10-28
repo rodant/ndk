@@ -1,4 +1,4 @@
-import type { Proof } from "@cashu/cashu-ts";
+import type { CashuMint, Proof } from "@cashu/cashu-ts";
 import type { NDKCashuToken, NDKEventId } from "@nostr-dev-kit/ndk";
 import type { MintUrl } from "../../mint/utils";
 import type { NDKCashuWallet } from "..";
@@ -6,6 +6,7 @@ import { getBalance, getMintsBalances } from "./balance";
 import { addProof, type GetOpts, getProofEntries, reserveProofs, unreserveProofs, updateProof } from "./proofs";
 import { addToken, removeTokenId } from "./token";
 import { update } from "./update";
+import { buildCounterKey, isValidCounterKey } from "../counters.js";
 
 export type ProofC = string;
 export type ProofState = "available" | "reserved" | "deleted";
@@ -86,6 +87,11 @@ export type GetTokenEntry = {
     proofEntries: ProofEntry[];
 };
 
+export type CounterEntry = { 
+    counterKey: string, 
+    counter: number | undefined
+};
+
 /**
  * This class represents the state of the wallet at any given time.
  * It uses information coming from relays, as well as optimistic assumptions
@@ -112,12 +118,27 @@ export class WalletState {
      */
     public tokens = new Map<NDKEventId, TokenEntry>();
 
+    /**
+     * Deterministic counters per "<normalized-mint>|<keyset-id>".
+     * Represents the last used counter value (starting at 0).
+     */
+    public deterministicCounters = new Map<string, number>();
+ 
     public journal: JournalEntry[] = [];
 
     constructor(
         public wallet: NDKCashuWallet,
         public reservedProofCs: Set<string> = new Set<string>(),
-    ) {}
+        countersSnapshot?: Record<string, number>
+    ) {
+        if (countersSnapshot) {
+            for (const [key, value] of Object.entries(countersSnapshot)) {
+                if (Number.isInteger(value) && value >= 0) {
+                    this.deterministicCounters.set(key, value);
+                }
+            }
+        }
+    }
 
     /** This is a debugging function that dumps the state of the wallet */
     public dump() {
@@ -129,6 +150,73 @@ export class WalletState {
         };
 
         return res;
+    }
+
+    /***************************
+     * Deterministic counters API
+     ***************************/
+
+    /**
+     * Returns the last used counter for a given composite key ("<normalized-mint>|<keyset-id>").
+     */
+    public getNextCounterByKey(key: string): number | undefined {
+        if (!isValidCounterKey(key)) return undefined;
+        return this.deterministicCounters.get(key);
+    }
+
+    /**
+     * Returns the last used counter for the provided mint URL and keyset id.
+     * The mint URL is normalized internally before lookup.
+     */
+    public getNextCounter(mintUrl: string, keysetId: string): number | undefined {
+        const key = buildCounterKey(mintUrl, keysetId);
+        return this.getNextCounterByKey(key);
+    }
+
+    /**
+     * Sets the last used counter for a composite key with monotonic max semantics.
+     * If the provided value is lower than the stored one, it is ignored.
+     * Returns the effective value after the update.
+     */
+    public setNextCounterByKey(key: string, lastUsed: number): number {
+        if (!isValidCounterKey(key)) throw new Error(`invalid counter key: ${key}`);
+        if (!Number.isInteger(lastUsed) || lastUsed < 0) {
+            throw new Error(`lastUsed counter must be a non-negative integer`);
+        }
+        const current = this.deterministicCounters.get(key) ?? 0;
+        const next = Math.max(current, lastUsed);
+        this.deterministicCounters.set(key, next);
+        return next;
+    }
+
+    /**
+     * Sets the last used counter for the given mint/keyset with monotonic semantics.
+     */
+    public setNextCounter(mintUrl: string, keysetId: string, lastUsed: number): number {
+        const key = buildCounterKey(mintUrl, keysetId);
+        return this.setNextCounterByKey(key, lastUsed);
+    }
+
+    /**
+     * Returns a plain object snapshot of the counters suitable for serialization in kind 17376.
+     */
+    public getDeterministicCountersSnapshot(): Record<string, number> {
+        const out: Record<string, number> = {};
+        for (const [k, v] of this.deterministicCounters.entries()) out[k] = v;
+        return out;
+    }
+
+    public async getCounterEntryFor(cashuMint: CashuMint): Promise<CounterEntry> {
+        const active = await cashuMint.getKeys();
+        const keysetId =
+            active.keysets.find((ks) => ks.unit === "sat")?.id ??
+            active.keysets[0]?.id;
+        const nextCounter = this.getNextCounter(cashuMint.mintUrl, keysetId);
+
+        return {
+            counterKey: buildCounterKey(cashuMint.mintUrl, keysetId),
+            counter: nextCounter
+        };
     }
 
     /***************************
