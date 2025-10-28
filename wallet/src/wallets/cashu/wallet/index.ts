@@ -280,28 +280,29 @@ export class NDKCashuWallet extends NDKWallet {
     static async from(event: NDKEvent, deterministicInfoEvent?: NDKEvent): Promise<NDKCashuWallet | undefined> {
         if (!event.ndk) throw new Error("no ndk instance on event");
 
-        const wallet = new NDKCashuWallet(event.ndk, undefined);
+        const wallet = new NDKCashuWallet(event.ndk);
         await wallet.loadFromEvent(event);
 
         // Try to have deterministic info ready for synchronous getter usage
         if (deterministicInfoEvent) {
+            const infoEvent = new NDKEvent(event.ndk, deterministicInfoEvent);
             try {
-                await deterministicInfoEvent.decrypt();
+                await infoEvent.decrypt();
             } catch (e) {
-                // ignore; getter will handle absence
+                throw new Error("Error decrypting deterministic wallet event.");
             }
 
             // Initialize WalletState with counters snapshot parsed from deterministic info
             let countersSnapshot: Record<string, number> | undefined;
-            if (deterministicInfoEvent.content) {
+            if (infoEvent.content) {
                 try {
-                    const infoContent = JSON.parse(deterministicInfoEvent.content);
+                    const infoContent = JSON.parse(infoEvent.content);
                     if (isDeterministicCashuWalletInfoContent(infoContent)) {
                         wallet.bip39seed = hexToBytes(infoContent.bip39seed);
                         countersSnapshot = infoContent.counters;
                     }
-                } catch {
-                    // ignore parse errors
+                } catch (e) {
+                    throw new Error(`Error parsing content of deterministic wallet event: ${infoEvent.content}`);
                 }
             }
             wallet.state = new WalletState(wallet, new Set<string>(), countersSnapshot ?? {});

@@ -117,6 +117,7 @@ export enum NDKKind {
 
     // NIP-60
     CashuWallet = 17375,
+    CashuDeterministicWalletInfo = 17376,
 
     FollowSet = 30000,
     CategorizedPeopleList = NDKKind.FollowSet, // Deprecated but left for backwards compatibility

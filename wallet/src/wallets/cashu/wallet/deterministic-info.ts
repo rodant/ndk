@@ -9,9 +9,6 @@
  * - Content is expected to be NIP-44 encrypted when published.
  */
 
-// TODO (rodant): define under the event kinds
-export const DeterministicCashuWalletInfoKind: number = 17376;
-
 /**
  * Canonical key format for counters map:
  *   "<normalized-mint>|<keyset-id>"
