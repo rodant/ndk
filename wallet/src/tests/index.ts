@@ -2,6 +2,7 @@ import { NDKPrivateKeySigner } from "@nostr-dev-kit/ndk";
 import { NDKNutzap } from "@nostr-dev-kit/ndk";
 import NDK from "@nostr-dev-kit/ndk";
 
+// TODO (rodant): still need this test helpers?
 export type Proof = {
     id: string;
     amount: number;
