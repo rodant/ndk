@@ -313,7 +313,10 @@ export class NDKCashuWallet extends NDKWallet {
 
     /**
      * Creates a new NIP-60 wallet with the specified configuration.
-     * Generates a private key, publishes the wallet event (kind 17375), and creates a backup (kind 375).
+     * - Generates a private key, 
+     * - publishes the wallet event (kind 17375),
+     * - when bip39seed given, publishes the deterministic wallet event (kind 17376),
+     * - and creates a backup (kind 375).
      *
      * @param ndk - NDK instance
      * @param mints - Array of mint URLs to configure
@@ -327,9 +330,8 @@ export class NDKCashuWallet extends NDKWallet {
      *   ['wss://relay.example.com']
      * );
      */
-    // TODO (rodant): add bip39seed parameter
-    static async create(ndk: NDK, mints: string[], relays?: string[]): Promise<NDKCashuWallet> {
-        const wallet = new NDKCashuWallet(ndk);
+    static async create(ndk: NDK, mints: string[], relays?: string[], bip39seed?: Uint8Array): Promise<NDKCashuWallet> {
+        const wallet = new NDKCashuWallet(ndk, bip39seed);
 
         // Generate and add a private key
         const signer = NDKPrivateKeySigner.generate();
@@ -343,7 +345,7 @@ export class NDKCashuWallet extends NDKWallet {
             wallet.relaySet = NDKRelaySet.fromRelayUrls(relays, ndk);
         }
 
-        // Publish wallet event (kind 17375)
+        // Publish wallet events (kinds 17375, 17376)
         await wallet.publish();
 
         // Create and publish backup (kind 375)
@@ -578,7 +580,7 @@ export class NDKCashuWallet extends NDKWallet {
     }
 
     /**
-     * Publishes the wallet configuration (kind 17375) to save changes.
+     * Publishes the wallet configuration (kinds 17375, 17376 to save changes.
      * Call this after modifying mints or relaySet to persist the configuration.
      *
      * The wallet event contains encrypted mint URLs, private keys, and relay URLs.
@@ -610,8 +612,7 @@ export class NDKCashuWallet extends NDKWallet {
         const eventPromise = event.publish(this.relaySet);
         const deterministicWalletPromise = this.publishDeterministicInfo(this.relaySet);
         const resultPromise = Promise.all([eventPromise, deterministicWalletPromise]);
-        // TODO (rodant): improve by returning the intersections of the relays from both events
-        return resultPromise.then(r => r[0]);
+        return resultPromise.then(r => r[0].intersection(r[1]));
     }
 
     /**
@@ -634,6 +635,8 @@ export class NDKCashuWallet extends NDKWallet {
     /**
      * Updates wallet configuration (mints and relays) and publishes the changes.
      * Uses publishReplaceable to ensure the event replaces the previous wallet configuration.
+     * 
+     * Note: for updating the deterministic wallet event, see updateDeterministicEvent(..).
      *
      * @param config - Configuration object with mints and optional relays
      *
@@ -648,7 +651,6 @@ export class NDKCashuWallet extends NDKWallet {
      *   relays: ['wss://relay.example.com']
      * });
      */
-    //TODO (rodant): update the deterministic wallet event as well?
     async update(config: { mints: string[]; relays?: string[] }) {
         // Update mints
         this.mints = config.mints;
@@ -672,6 +674,17 @@ export class NDKCashuWallet extends NDKWallet {
         await event.encrypt(user, undefined, "nip44");
 
         return event.publishReplaceable(this.relaySet);
+    }
+
+    /**
+     * Updates monotonically the state of the counters and publishes the deterministic wallet event. This method can be very handy in cases the 
+     * wallet operations fail consistently because an inconsistent counter state.
+     * 
+     * @param counters the counter to be updated
+     */
+    async updateDeterministicEvent(counterKey: string, value: number): Promise<Set<NDKRelay>> {
+        this.state.setNextCounterByKey(counterKey, value);
+        return await this.publishDeterministicInfo();
     }
 
     public async incrementDeterministicCounter(counterKey: string, counterIncrement: number, tries: number = 3) {
@@ -698,9 +711,8 @@ export class NDKCashuWallet extends NDKWallet {
      * - Merges local counters with the latest remote snapshot using per-key max()
      * - Requires bip39seed to be set/derivable
      * - Encrypts content with NIP-44
-     * - Updates this.deterministicInfoEvent on success
      */
-    private async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<NDKEvent> {
+    private async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<Set<NDKRelay>> {
         const seed = this.bip39seed;
         if (!seed) throw new Error("bip39seed not set");
 
@@ -743,10 +755,10 @@ export class NDKCashuWallet extends NDKWallet {
             counters: mergedCounters,
         });
 
-        await info.encrypt(user, undefined, "nip44");
-        await info.publishReplaceable(relaySet);
+        await info.encrypt();
+        const relays = await info.publishReplaceable(relaySet);
 
-        return info;
+        return relays;
     }
 
     /**
@@ -776,10 +788,7 @@ export class NDKCashuWallet extends NDKWallet {
     /**
      * Merge counters using per-key max semantics.
      */
-    private mergeCountersMax(
-        a: Record<string, number>,
-        b: Record<string, number>
-    ): Record<string, number> {
+    private mergeCountersMax(a: Record<string, number>, b: Record<string, number>): Record<string, number> {
         const out: Record<string, number> = { ...a };
         for (const [k, v] of Object.entries(b)) {
             const lv = out[k] ?? 0;

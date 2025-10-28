@@ -122,7 +122,7 @@ export class WalletState {
      * Deterministic counters per "<normalized-mint>|<keyset-id>".
      * Represents the last used counter value (starting at 0).
      */
-    public deterministicCounters = new Map<string, number>();
+    private deterministicCounters = new Map<string, number>();
  
     public journal: JournalEntry[] = [];
 
