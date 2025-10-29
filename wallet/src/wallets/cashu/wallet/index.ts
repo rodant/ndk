@@ -298,7 +298,7 @@ export class NDKCashuWallet extends NDKWallet {
                 try {
                     const infoContent = JSON.parse(infoEvent.content);
                     if (isDeterministicCashuWalletInfoContent(infoContent)) {
-                        wallet.bip39seed = hexToBytes(infoContent.bip39seed);
+                        wallet._bip39seed = hexToBytes(infoContent.bip39seed);
                         countersSnapshot = infoContent.counters;
                     }
                 } catch (e) {
@@ -713,7 +713,7 @@ export class NDKCashuWallet extends NDKWallet {
      * - Encrypts content with NIP-44
      */
     private async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<Set<NDKRelay>> {
-        const seed = this.bip39seed;
+        const seed = this._bip39seed;
         if (!seed) throw new Error("bip39seed not set");
 
         const user = await this.ndk!.signer!.user();
