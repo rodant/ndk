@@ -38,7 +38,7 @@ export async function redeemNutzaps(
             continue;
         }
 
-        // TODO (rodant): pass counter and update deterministic wallet event. For that we need to upgrade to a newer cashu-ts version.
+        // TODO (rodant): pass counter and update deterministic wallet event. For that we need to upgrade to a newer 3.x cashu-ts version.
         const result = await cashuWallet.meltProofs(meltQuote, proofs, { privkey });
         let change: NDKCashuToken | undefined;
         if (result.change.length > 0) change = await saveChange(this.ndk, mint, result.change);

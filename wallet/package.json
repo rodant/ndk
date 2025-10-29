@@ -56,7 +56,7 @@
         "zustand": "^5.0.3"
     },
     "devDependencies": {
-        "@cashu/cashu-ts": "^2.2.0",
+        "@cashu/cashu-ts": "2.7.4",
         "@cashu/crypto": "*",
         "@webbtc/webln-types": "^3.0.0",
         "nock": "^13.5.6",
