@@ -31,15 +31,18 @@ The `NDKCashuWallet` implements the NIP-60 specification, providing a fully-feat
 - Mint interaction and token issuance
 - Proofs handling and validation
 - Backup and restore functionality
+- Seed backup and restore according to Cashu's NUT-13 for deterministic wallets
 
 ```typescript
 import { NDKCashuWallet } from "@nostr-dev-kit/ndk-wallet";
 
+const bip39seed: Uint8Array = [];
 // Create a new wallet with initial configuration
 const wallet = await NDKCashuWallet.create(
   ndk,
   ['https://mint.example.com'],           // mints
-  ['wss://relay.example.com']             // relays (optional)
+  ['wss://relay.example.com'],            // relays (optional)
+  bip39seed                               // wallet seed (optional)
 );
 
 // Or load an existing wallet from an event
