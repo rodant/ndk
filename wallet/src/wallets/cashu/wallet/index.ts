@@ -772,7 +772,7 @@ export class NDKCashuWallet extends NDKWallet {
             limit: 1,
         };
 
-        const set = await this.ndk.fetchEvents(filter, undefined, relaySet);
+        const set = await this.ndk.fetchEvents(filter, { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY}, relaySet);
         if (!set || set.size === 0) return undefined;
 
         const list = Array.from(set.values());
