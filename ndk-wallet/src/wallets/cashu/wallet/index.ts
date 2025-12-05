@@ -78,12 +78,6 @@ export class NDKCashuWallet extends NDKWallet {
 
     public _event?: NDKEvent;
 
-    /**
-     * Optional Deterministic Cashu Wallet Info (kind 17376) event.
-     * When present, bip39seed is derived from its content.
-     */
-    public deterministicInfoEvent?: NDKEvent;
-
     public walletId: string = "nip-60";
 
     public depositMonitor = new NDKCashuDepositMonitor();
@@ -100,19 +94,6 @@ export class NDKCashuWallet extends NDKWallet {
 
     constructor(ndk: NDK, bip39seed?: Uint8Array, event?: NDKEvent) {
         super(ndk);
-        // If a seed is provided, initialize a deterministic info snapshot carrying it.
-        if (bip39seed) {
-            this._bip39seed = bip39seed;
-            const info = new NDKEvent(ndk);
-            info.kind = DeterministicCashuWalletInfoKind;
-            info.tags = [];
-            info.content = JSON.stringify({
-                bip39seed: bytesToHex(bip39seed),
-                counters: {},
-            });
-            this.deterministicInfoEvent = info;
-        }
-
         if (!event) {
             event = new NDKEvent(ndk);
             event.kind = NDKKind.CashuWallet;
@@ -121,29 +102,14 @@ export class NDKCashuWallet extends NDKWallet {
 
         this.event = event;
         this.ndk = ndk;
+        this._bip39seed = bip39seed;
         this.paymentHandler = new PaymentHandler(this);
         // Initialize WalletState with an empty counters snapshot
         this.state = new WalletState(this, new Set<string>());
     }
 
     public get bip39seed(): Uint8Array | undefined {
-        if (this._bip39seed) return this._bip39seed;
-
-        // If a deterministic info event is available and already decrypted,
-        // attempt to derive the seed from it.
-        if (this.deterministicInfoEvent?.content) {
-            try {
-                const content = JSON.parse(this.deterministicInfoEvent.content);
-                if (isDeterministicCashuWalletInfoContent(content)) {
-                    this._bip39seed = hexToBytes(content.bip39seed);
-                    return this._bip39seed;
-                }
-            } catch {
-                // content might be still encrypted or malformed; ignore
-            }
-        }
-
-        return undefined;
+        return this._bip39seed;
     }
 
     public set bip39seed(value: Uint8Array) {
@@ -248,8 +214,7 @@ export class NDKCashuWallet extends NDKWallet {
     static async from(event: NDKEvent, deterministicInfoEvent?: NDKEvent): Promise<NDKCashuWallet | undefined> {
         if (!event.ndk) throw new Error("no ndk instance on event");
         const wallet = new NDKCashuWallet(event.ndk, undefined, event);
-        wallet.deterministicInfoEvent = deterministicInfoEvent;
-
+        
         if (!wallet.event) return;
         if (wallet.isDeleted) return;
 
@@ -258,24 +223,25 @@ export class NDKCashuWallet extends NDKWallet {
         } catch (e) {}
 
         // Try to have deterministic info ready for synchronous getter usage
-        if (wallet.deterministicInfoEvent) {
+        if (deterministicInfoEvent) {
+            const infoEvent = new NDKEvent(event.ndk, deterministicInfoEvent);
             try {
-                await wallet.deterministicInfoEvent.decrypt();
+                await infoEvent.decrypt();
             } catch (e) {
-                // ignore; getter will handle absence
+                throw new Error("Error decrypting deterministic wallet event.");
             }
 
             // Initialize WalletState with counters snapshot parsed from deterministic info
             let countersSnapshot: Record<string, number> | undefined;
-            if (wallet.deterministicInfoEvent.content) {
+            if (infoEvent.content) {
                 try {
-                    const info = JSON.parse(wallet.deterministicInfoEvent.content);
-                    if (isDeterministicCashuWalletInfoContent(info)) {
-                        wallet.bip39seed = hexToBytes(info.bip39seed);
-                        countersSnapshot = info.counters;
+                    const infoContent = JSON.parse(infoEvent.content);
+                    if (isDeterministicCashuWalletInfoContent(infoContent)) {
+                        wallet.bip39seed = hexToBytes(infoContent.bip39seed);
+                        countersSnapshot = infoContent.counters;
                     }
                 } catch {
-                    // ignore parse errors
+                    throw new Error(`Error parsing content of deterministic wallet event: ${infoEvent.content}`);
                 }
             }
             wallet.state = new WalletState(wallet, new Set<string>(), countersSnapshot ?? {});
@@ -414,10 +380,14 @@ export class NDKCashuWallet extends NDKWallet {
             await this.event.encrypt(user, undefined, "nip44");
         }
         const eventPromise = this.event.publishReplaceable(this.relaySet);
-        const deterministicWalletPromise = this.publishDeterministicInfo(this.relaySet);
-        const resultPromise = Promise.all([eventPromise, deterministicWalletPromise]);
-        // TODO (rodant): improve by returning the intersections of the relays from both events
-        return resultPromise.then(r => r[0]);
+        let resultPromise;
+        if (this._bip39seed) {
+            const deterministicWalletPromise = this.publishDeterministicInfo(this.relaySet);
+            resultPromise = Promise.all([eventPromise, deterministicWalletPromise]).then(r => r[0].intersection(r[1]));
+        } else {
+            resultPromise = eventPromise;
+        }
+        return resultPromise;
     }
 
     public async incrementDeterministicCounter(counterKey: string, counterIncrement: number, tries: number = 3) {
@@ -448,7 +418,7 @@ export class NDKCashuWallet extends NDKWallet {
      * - Encrypts content with NIP-44
      * - Updates this.deterministicInfoEvent on success
      */
-    private async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<NDKEvent> {
+    private async publishDeterministicInfo(relaySet: NDKRelaySet | undefined = this.relaySet): Promise<Set<NDKRelay>> {
         const seed = this.bip39seed;
         if (!seed) throw new Error("bip39seed not set");
 
@@ -492,14 +462,9 @@ export class NDKCashuWallet extends NDKWallet {
         });
 
         await info.encrypt(user);
-        await info.publishReplaceable(relaySet);
+        const relays = await info.publishReplaceable(relaySet);
 
-        try {
-            // we store locally in the instance always the clear text event
-            await info.decrypt();
-            this.deterministicInfoEvent = info;
-        } catch {}
-        return info;
+        return relays;
     }
 
     /**
