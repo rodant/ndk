@@ -25,6 +25,7 @@ export async function walletForMint(
         timeout = 5000,
         mintInfo,
         mintKeys,
+        ephemeralWallet = false,
         onMintInfoNeeded,
         onMintInfoLoaded,
         onMintKeysNeeded,
@@ -35,6 +36,7 @@ export async function walletForMint(
         timeout?: number;
         mintInfo?: GetInfoResponse;
         mintKeys?: MintKeys[];
+        ephemeralWallet?: boolean,
         onMintInfoNeeded?: (mint: string) => Promise<GetInfoResponse | undefined>;
         onMintInfoLoaded?: (mint: string, info: GetInfoResponse) => void;
         onMintKeysNeeded?: (mint: string) => Promise<MintKeys[] | undefined>;
@@ -53,7 +55,7 @@ export async function walletForMint(
     const key = mintKey(mint, unit, pk);
     
     // Check if we already have a wallet for this mint
-    if (mintWallets.has(key)) {
+    if (!ephemeralWallet && mintWallets.has(key)) {
         return mintWallets.get(key) as CashuWallet;
     }
 
@@ -97,7 +99,9 @@ export async function walletForMint(
             
             await Promise.race([wallet.loadMint(), timeoutPromise]);
             
-            mintWallets.set(key, wallet);
+            if (!ephemeralWallet) {
+                mintWallets.set(key, wallet);
+            }
             mintWalletPromises.delete(key);
 
             if (wallet.keys) {
