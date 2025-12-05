@@ -51,7 +51,7 @@
         "webln": "^0.3.2"
     },
     "devDependencies": {
-        "@cashu/cashu-ts": "2.2.0",
+        "@cashu/cashu-ts": "2.8.1",
         "@cashu/crypto": "0.3.4",
         "@nostr-dev-kit/eslint-config-custom": "workspace:*",
         "@nostr-dev-kit/tsconfig": "workspace:*",
