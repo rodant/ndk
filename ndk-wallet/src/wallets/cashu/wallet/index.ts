@@ -481,7 +481,7 @@ export class NDKCashuWallet extends NDKWallet {
             counters: mergedCounters,
         });
 
-        await info.encrypt(user, undefined, "nip44");
+        await info.encrypt(user);
         await info.publishReplaceable(relaySet);
 
         try {
